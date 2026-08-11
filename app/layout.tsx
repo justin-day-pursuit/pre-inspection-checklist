@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Pre-Inspection Checklist",
+  title: "NYC Open HPD Violations",
   description:
-    "Create a move-out pre-inspection checklist for NYC properties before the official inspection.",
+    "Search open HPD violations for NYC apartment buildings using NYC Open Data.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

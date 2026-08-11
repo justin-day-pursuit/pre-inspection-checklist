@@ -1,30 +1,36 @@
-# Pre-Inspection Checklist
+# Pre-Inspection Checklist / NYC Open HPD Violations
 
-Create a checklist after a tenant moves out and before the official inspection.
-Current project scope is **New York City (NYC)** addresses in the United States.
+Help apartment owners look up **open HPD violations** for New York City buildings.
+Enter an address on the landing page; the app queries NYC Open Data and shows matching violations in a filterable table.
 
-This app is built with **Next.js + React + TypeScript** so it deploys easily on **Vercel**.
-Google **Gemini 3.6 Flash** (`gemini-3.6-flash`) is wired on the server for AI prompting.
+Built with **Next.js + React + TypeScript** for easy **Vercel** deploys.
+Google **Gemini 3.6 Flash** is still available on the server for later AI features.
 
 ## What works today
 
-- Project scaffolding (App Router, TypeScript, Tailwind)
-- Local env setup for your Gemini API key
-- Server-side Gemini helpers (Server Action + API Route)
-- A simple address search page (UI only — **does not send data** on Enter or Search click)
+- Landing page with NYC address search
+- Server-side SODA3 query to Open HPD Violations (`csn4-vhvf`)
+- Loading spinner under the form while waiting
+- After the API call finishes, the page scrolls so the search form is at the top
+- Results table: Order Number, Description, Original Creation Date (`approveddate`)
+- Client-side filter/search within results
+- Clear messages for empty / error / 30-second timeout
+- Gemini helpers remain available (`lib/gemini.ts`, Server Action, `/api/gemini`)
 - Build verification with `npm run build` / `npm run check`
 
 ## Not included yet
 
-- Real address lookup / autocomplete
-- Connecting search to Gemini
-- Recording or screenshot capture (skipped for this phase)
-- Saving/exporting completed checklists
+- Nearby-area / map radius search
+- Recording or screenshot capture
+- Saving/exporting checklists
+- Wiring Gemini into the violations UI
 
 ## Prerequisites
 
 - Node.js 20+ and npm
-- A Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey)
+- An NYC Open Data / Socrata **App Token** (required for SODA3)
+- Optional: NYC Open Data username + password for Basic Auth
+- Optional: Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey)
 
 ## Setup
 
@@ -34,16 +40,27 @@ Google **Gemini 3.6 Flash** (`gemini-3.6-flash`) is wired on the server for AI p
 npm install
 ```
 
-2. Create your local env file:
+2. Create your local env file (if you do not already have one):
 
 ```bash
 cp .env.example .env.local
 ```
 
-3. Open `.env.local` and paste your key:
+3. Open `.env.local` and fill in:
 
 ```bash
-GEMINI_API_KEY=your_key_here
+# Required for violation search
+NYC_OPENDATA_APP_TOKEN=your_app_token_here
+
+# Optional Basic Auth for your NYC Open Data account
+NYC_OPENDATA_USERNAME=
+NYC_OPENDATA_PASSWORD=
+
+# Already set to the Open HPD Violations SODA3 endpoint
+NYC_OPENDATA_BASE_URL=https://data.cityofnewyork.us/api/v3/views/csn4-vhvf/query.json
+
+# Optional Gemini key for later AI features
+GEMINI_API_KEY=
 ```
 
 4. Start the development server:
@@ -54,7 +71,43 @@ npm run dev
 
 5. Open [http://localhost:3000](http://localhost:3000)
 
-## Gemini configuration
+## How address search works
+
+1. User enters an NYC address on the landing page.
+2. Pressing **Enter** or clicking **Search** sends `POST /api/violations` with `{ address }`.
+3. The server parses house number + street text and runs a SODA3 SoQL query against Open HPD Violations.
+4. While waiting, a spinner appears under the form.
+5. When the call finishes (success or failure), the page scrolls so the search form is at the top.
+6. Outcomes:
+   - **Success with rows** → filterable table of unique violations
+   - **Empty** → `No match found`
+   - **Error** → `Error in getting data`
+   - **Timeout (30 seconds)** → `The search timed out`
+
+Secrets stay on the server. The browser never receives your App Token or password.
+
+## NYC Open Data configuration
+
+| Item | Value |
+| --- | --- |
+| Dataset | Open HPD Violations (`csn4-vhvf`) |
+| Protocol | SODA3 `POST .../query.json` |
+| App Token header | `X-App-Token` |
+| Env vars | `NYC_OPENDATA_APP_TOKEN`, `NYC_OPENDATA_USERNAME`, `NYC_OPENDATA_PASSWORD`, `NYC_OPENDATA_BASE_URL` |
+| Helper | `lib/nyc-opendata.ts` |
+| API Route | `POST /api/violations` |
+| Client timeout | 30 seconds |
+| Server timeout | 30 seconds |
+
+Table columns shown:
+
+| UI label | Dataset field |
+| --- | --- |
+| Order Number | `ordernumber` |
+| Description | `novdescription` |
+| Original Creation Date | `approveddate` |
+
+## Gemini configuration (optional)
 
 | Item | Value |
 | --- | --- |
@@ -64,27 +117,13 @@ npm run dev
 | Server Action | `app/actions/gemini.ts` |
 | API Route | `POST /api/gemini` |
 
-The address search form does **not** call Gemini yet. That keeps the first UI safe while you add your key and verify the project builds.
-
-### Optional: test the API Route manually
-
-After adding your key and starting the app:
-
-```bash
-curl -X POST http://localhost:3000/api/gemini \
-  -H "Content-Type: application/json" \
-  -d '{"prompt":"Say hello in one short sentence."}'
-```
-
 ## Verify the build
-
-Use this to confirm TypeScript and Next.js compile cleanly (recommended before deploying):
 
 ```bash
 npm run build
 ```
 
-Or the shorthand:
+Or:
 
 ```bash
 npm run check
@@ -104,21 +143,25 @@ npm run check
 
 ```text
 app/
-  page.tsx                 # Home page with address search
-  layout.tsx               # Shared page shell
-  actions/gemini.ts        # Server Action for Gemini prompts
-  api/gemini/route.ts      # HTTP API for Gemini prompts
+  page.tsx                    # Landing page
+  layout.tsx                  # Shared page shell
+  api/violations/route.ts     # Address → NYC Open Data proxy
+  api/gemini/route.ts         # Optional Gemini HTTP API
+  actions/gemini.ts           # Optional Gemini Server Action
 components/
-  AddressSearchForm.tsx    # Search UI that does not submit yet
+  AddressSearchForm.tsx       # Search form, spinner, status messages
+  ViolationsResults.tsx       # Filterable violations table
 lib/
-  gemini.ts                # Shared Gemini client helper
-.env.example               # Safe template for env variable names
-.env.local                 # Your real key (gitignored — do not commit)
+  nyc-opendata.ts             # SODA3 helper (server only)
+  violations-types.ts         # Shared TypeScript types
+  gemini.ts                   # Gemini helper (server only)
+.env.example                  # Safe template for env variable names
+.env.local                    # Your real secrets (gitignored — do not commit)
 ```
 
 ## Notes for maintainers
 
-- Put secrets only in `.env.local`. Never commit API keys.
+- Put secrets only in `.env.local`. Never commit API keys or passwords.
 - Restart `npm run dev` after changing env files.
-- If you change the address form later, keep Gemini calls on the server (Server Action or API Route), not in browser code.
+- Keep NYC Open Data and Gemini calls on the server (API Routes / Server Actions).
 - Comments in the code explain each major section in plain language.

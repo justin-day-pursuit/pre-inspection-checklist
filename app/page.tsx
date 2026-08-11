@@ -1,33 +1,29 @@
 /**
- * Home page
- * ---------
- * Landing screen for the pre-inspection checklist app.
- * Right now it only shows an address search form that does not submit data.
- *
- * Later we can connect search results to checklist generation (Gemini helpers
- * already live in `lib/gemini.ts`, `app/actions/gemini.ts`, and `app/api/gemini`).
+ * Home / landing page
+ * -------------------
+ * Starting point for apartment owners.
+ * Users enter an NYC address below to look up open HPD violations.
  */
 
 import AddressSearchForm from "@/components/AddressSearchForm";
 
 export default function HomePage() {
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-16">
+    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-6 py-16">
       <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">
-        Pre-Inspection Checklist
+        NYC Open HPD Violations
       </p>
 
       <h1 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-900 sm:text-4xl">
-        Prepare for the move-out inspection
+        Check open violations for your building
       </h1>
 
       <p className="mt-4 max-w-2xl text-base leading-relaxed text-zinc-600">
-        Find a property address to start building a checklist after a tenant
-        moves out and before the official inspection. Current scope is New York
-        City addresses in the United States.
+        Search a New York City address to see open Housing Preservation and
+        Development (HPD) violations. Start with the form below — press Enter
+        or click Search to look up matching records from NYC Open Data.
       </p>
 
-      {/* Search is UI-only for now — see AddressSearchForm comments */}
       <AddressSearchForm />
     </main>
   );

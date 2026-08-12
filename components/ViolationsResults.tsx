@@ -3,13 +3,16 @@
 /**
  * ViolationsResults
  * -----------------
- * Shows open HPD violations for the searched address in a table.
- * Users can filter/search within the returned list (client-side only).
+ * Own scrollable list container for open HPD violations.
+ * Grows with content up to a max height, then scrolls on its own.
  *
- * Columns:
- * - Order Number (`ordernumber`)
- * - Description (`novdescription`)
- * - Original Creation Date (`approveddate`)
+ * Columns (UI label ← dataset field):
+ * - Vio #      ← violationid
+ * - Vio code   ← ordernumber
+ * - Class      ← class
+ * - Descript   ← novdescription
+ * - Apt        ← apartment (may be empty)
+ * - Date       ← novissueddate
  */
 
 import { useMemo, useState } from "react";
@@ -33,11 +36,12 @@ export default function ViolationsResults({
 
     return violations.filter((row) => {
       const haystack = [
+        row.violationId,
         row.orderNumber,
+        row.violationClass,
         row.description,
-        row.originalCreationDate,
-        row.houseNumber,
-        row.streetName,
+        row.apartment,
+        row.novIssuedDate,
       ]
         .join(" ")
         .toLowerCase();
@@ -69,31 +73,64 @@ export default function ViolationsResults({
             type="search"
             value={filterText}
             onChange={(event) => setFilterText(event.target.value)}
-            placeholder="Filter by order # or description"
+            placeholder="Filter Vio #, code, or descript"
             className="min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none ring-zinc-400 placeholder:text-zinc-400 focus:ring-2"
           />
         </label>
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded-md border border-zinc-200 bg-white">
+      {/*
+        Dedicated list container:
+        - width follows the page (dynamic horizontal sizing)
+        - height grows with rows up to max-h, then scrolls independently
+      */}
+      <div
+        className="mt-4 max-h-[min(60vh,28rem)] w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-sm"
+        role="region"
+        aria-label="Scrollable violations list"
+      >
         <table className="min-w-full border-collapse text-left text-sm">
-          <thead className="bg-zinc-100 text-zinc-700">
+          <thead className="sticky top-0 z-10 bg-zinc-100 text-zinc-700">
             <tr>
-              <th scope="col" className="px-3 py-2 font-medium">
-                Order Number
+              <th
+                scope="col"
+                className="whitespace-nowrap px-3 py-2 font-medium"
+              >
+                Vio #
               </th>
-              <th scope="col" className="px-3 py-2 font-medium">
-                Description
+              <th
+                scope="col"
+                className="whitespace-nowrap px-3 py-2 font-medium"
+              >
+                Vio code
               </th>
-              <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">
-                Original Creation Date
+              <th
+                scope="col"
+                className="whitespace-nowrap px-3 py-2 font-medium"
+              >
+                Class
+              </th>
+              <th scope="col" className="min-w-[14rem] px-3 py-2 font-medium">
+                Descript
+              </th>
+              <th
+                scope="col"
+                className="whitespace-nowrap px-3 py-2 font-medium"
+              >
+                Apt
+              </th>
+              <th
+                scope="col"
+                className="whitespace-nowrap px-3 py-2 font-medium"
+              >
+                Date
               </th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={3} className="px-3 py-4 text-zinc-600">
+                <td colSpan={6} className="px-3 py-4 text-zinc-600">
                   No violations match your filter.
                 </td>
               </tr>
@@ -104,13 +141,23 @@ export default function ViolationsResults({
                   className="border-t border-zinc-200 align-top"
                 >
                   <td className="whitespace-nowrap px-3 py-2 font-medium text-zinc-900">
+                    {row.violationId || "—"}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-zinc-800">
                     {row.orderNumber || "—"}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-zinc-800">
+                    {row.violationClass || "—"}
                   </td>
                   <td className="px-3 py-2 text-zinc-700">
                     {row.description || "—"}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 text-zinc-700">
-                    {formatDate(row.originalCreationDate)}
+                    {/* Apt may be empty in the HPD data */}
+                    {row.apartment || ""}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-zinc-700">
+                    {formatDate(row.novIssuedDate)}
                   </td>
                 </tr>
               ))

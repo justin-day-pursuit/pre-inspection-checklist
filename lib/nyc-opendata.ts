@@ -226,8 +226,8 @@ export function buildViolationsSoql(
   const street = escapeSoqlLiteral(streetQuery);
 
   const parts = [
-    "SELECT `violationid`, `ordernumber`, `novdescription`, `approveddate`,",
-    "`housenumber`, `streetname`, `boro`, `zip`",
+    "SELECT `violationid`, `ordernumber`, `class`, `novdescription`,",
+    "`apartment`, `novissueddate`, `housenumber`, `streetname`, `boro`, `zip`",
     `WHERE \`housenumber\` = '${house}'`,
     `AND upper(\`streetname\`) LIKE '%${street}%'`,
   ];
@@ -237,7 +237,7 @@ export function buildViolationsSoql(
     parts.push(`AND \`zip\` = '${escapeSoqlLiteral(zip)}'`);
   }
 
-  parts.push("ORDER BY `approveddate` DESC NULL LAST");
+  parts.push("ORDER BY `novissueddate` DESC NULL LAST");
   return parts.join(" ");
 }
 
@@ -284,6 +284,45 @@ function extractRows(payload: unknown): Record<string, unknown>[] {
     if (Array.isArray(obj.rows)) return obj.rows as Record<string, unknown>[];
   }
   return [];
+}
+
+/** Map one SODA3 row into the HpdViolation shape used by the UI. */
+function mapRowToViolation(row: Record<string, unknown>): HpdViolation | null {
+  const violationId =
+    readField(row, "violationid") ||
+    readField(row, "ViolationID") ||
+    `${readField(row, "ordernumber")}-${readField(row, "novdescription")}`;
+
+  if (!violationId) return null;
+
+  return {
+    violationId,
+    orderNumber: readField(row, "ordernumber") || readField(row, "OrderNumber"),
+    // `class` is a reserved-ish field name in JS docs; HPD stores it as class
+    violationClass: readField(row, "class") || readField(row, "Class"),
+    description:
+      readField(row, "novdescription") || readField(row, "NOVDescription"),
+    apartment: readField(row, "apartment") || readField(row, "Apartment"),
+    novIssuedDate:
+      readField(row, "novissueddate") || readField(row, "NOVIssuedDate"),
+    houseNumber: readField(row, "housenumber") || readField(row, "HouseNumber"),
+    streetName: readField(row, "streetname") || readField(row, "StreetName"),
+    borough: readField(row, "boro") || readField(row, "Borough"),
+    zip: readField(row, "zip") || readField(row, "Postcode"),
+  };
+}
+
+/** Deduplicate SODA rows into unique violations by violation id. */
+function uniqueViolationsFromRows(
+  rows: Record<string, unknown>[],
+): HpdViolation[] {
+  const byId = new Map<string, HpdViolation>();
+  for (const row of rows) {
+    const mapped = mapRowToViolation(row);
+    if (!mapped || byId.has(mapped.violationId)) continue;
+    byId.set(mapped.violationId, mapped);
+  }
+  return Array.from(byId.values());
 }
 
 /** True when an error message clearly means a timeout. */
@@ -494,30 +533,7 @@ export async function searchOpenViolationsByAddress(
   }
 
   // Deduplicate by violation id so each unique violation appears once
-  const byId = new Map<string, HpdViolation>();
-  for (const row of result.rows) {
-    const violationId =
-      readField(row, "violationid") ||
-      readField(row, "ViolationID") ||
-      `${readField(row, "ordernumber")}-${readField(row, "novdescription")}`;
-
-    if (!violationId || byId.has(violationId)) continue;
-
-    byId.set(violationId, {
-      violationId,
-      orderNumber: readField(row, "ordernumber") || readField(row, "OrderNumber"),
-      description:
-        readField(row, "novdescription") || readField(row, "NOVDescription"),
-      originalCreationDate:
-        readField(row, "approveddate") || readField(row, "ApprovedDate"),
-      houseNumber: readField(row, "housenumber") || readField(row, "HouseNumber"),
-      streetName: readField(row, "streetname") || readField(row, "StreetName"),
-      borough: readField(row, "boro") || readField(row, "Borough"),
-      zip: readField(row, "zip") || readField(row, "Postcode"),
-    });
-  }
-
-  const violations = Array.from(byId.values());
+  const violations = uniqueViolationsFromRows(result.rows);
   if (violations.length === 0) {
     return { status: "empty" };
   }
@@ -561,30 +577,7 @@ export async function searchOpenViolationsByBuilding(match: {
     return { status: "error", message: result.message };
   }
 
-  const byId = new Map<string, HpdViolation>();
-  for (const row of result.rows) {
-    const violationId =
-      readField(row, "violationid") ||
-      readField(row, "ViolationID") ||
-      `${readField(row, "ordernumber")}-${readField(row, "novdescription")}`;
-
-    if (!violationId || byId.has(violationId)) continue;
-
-    byId.set(violationId, {
-      violationId,
-      orderNumber: readField(row, "ordernumber") || readField(row, "OrderNumber"),
-      description:
-        readField(row, "novdescription") || readField(row, "NOVDescription"),
-      originalCreationDate:
-        readField(row, "approveddate") || readField(row, "ApprovedDate"),
-      houseNumber: readField(row, "housenumber") || readField(row, "HouseNumber"),
-      streetName: readField(row, "streetname") || readField(row, "StreetName"),
-      borough: readField(row, "boro") || readField(row, "Borough"),
-      zip: readField(row, "zip") || readField(row, "Postcode"),
-    });
-  }
-
-  const violations = Array.from(byId.values());
+  const violations = uniqueViolationsFromRows(result.rows);
   if (violations.length === 0) {
     return { status: "empty" };
   }

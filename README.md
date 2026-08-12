@@ -107,9 +107,12 @@ Table columns shown:
 
 | UI label | Dataset field |
 | --- | --- |
-| Order Number | `ordernumber` |
-| Description | `novdescription` |
-| Original Creation Date | `approveddate` |
+| Vio # | `violationid` |
+| Vio code | `ordernumber` |
+| Class | `class` |
+| Descript | `novdescription` |
+| Apt | `apartment` (may be empty) |
+| Date | `novissueddate` |
 
 ## Gemini configuration (optional)
 

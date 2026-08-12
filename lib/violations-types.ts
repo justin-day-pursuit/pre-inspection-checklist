@@ -5,13 +5,20 @@
  * without pulling server-only NYC Open Data code into the client bundle.
  */
 
-/** One unique open violation we show in the results table. */
+/** One unique open violation we show in the results list. */
 export type HpdViolation = {
+  /** Violation # → UI label "Vio #" */
   violationId: string;
+  /** Order number → UI label "Vio code" */
   orderNumber: string;
+  /** Class (A / B / C seriousness) */
+  violationClass: string;
+  /** NOV Description → UI label "Descript" */
   description: string;
-  /** Mapped from HPD `approveddate` (closest stable "created" date). */
-  originalCreationDate: string;
+  /** Apartment — may be empty */
+  apartment: string;
+  /** NOV Issued Date → UI label "Date" */
+  novIssuedDate: string;
   houseNumber: string;
   streetName: string;
   borough: string;

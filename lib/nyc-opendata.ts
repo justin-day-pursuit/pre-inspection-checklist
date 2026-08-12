@@ -62,6 +62,44 @@ function normalizeOrdinals(street: string): string {
 }
 
 /**
+ * Normalize NYC building / house numbers, including Queens-style hyphens.
+ * Examples:
+ *   "35 - 01" → "35-01"
+ *   "35-01a"  → "35-01A"
+ *   "7011-A"  → "7011A"
+ *   "7011"    → "7011"
+ */
+export function normalizeHouseNumber(raw: string): string {
+  return raw
+    .trim()
+    .toUpperCase()
+    // Remove spaces around hyphens: "35 - 01" → "35-01"
+    .replace(/\s*-\s*/g, "-")
+    // Letter-only suffix after a hyphen (rare typing): "7011-A" → "7011A"
+    .replace(/-([A-Z])$/g, "$1")
+    // Collapse any leftover internal spaces inside the house token
+    .replace(/\s+/g, "");
+}
+
+/**
+ * House-number token used at the start of an address.
+ * Supports plain ("7011"), letter suffix ("7011A"), and hyphenated Queens-style ("35-01", "35-01A").
+ */
+const HOUSE_NUMBER_PATTERN = String.raw`\d+(?:-\d+)?[A-Za-z]?`;
+
+/**
+ * Clean an address string before house/street splitting.
+ * Joins spaced hyphens in building numbers: "35 - 01 35 Ave" → "35-01 35 Ave"
+ */
+function preprocessAddressInput(raw: string): string {
+  return raw
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/(\d)\s*-\s*(\d)/g, "$1-$2")
+    .replace(/(\d)\s*-\s*([A-Za-z])\b/g, "$1$2");
+}
+
+/**
  * Expand street-type abbreviations to full words (HPD-friendly).
  */
 function expandStreetTypes(street: string): string {
@@ -81,7 +119,7 @@ export function parseNycAddress(rawAddress: string): {
   streetQuery: string;
   zip: string | null;
 } | null {
-  const cleaned = rawAddress.trim().replace(/\s+/g, " ");
+  const cleaned = preprocessAddressInput(rawAddress);
   if (!cleaned) return null;
 
   // Capture a trailing ZIP when the user typed one (used as an optional SoQL filter)
@@ -95,10 +133,12 @@ export function parseNycAddress(rawAddress: string): {
     .replace(/\s+\d{5}(-\d{4})?$/i, "")
     .trim();
 
-  const match = withoutCityState.match(/^(\d+[A-Za-z\-\/]?)\s+(.+)$/);
+  const match = withoutCityState.match(
+    new RegExp(`^(${HOUSE_NUMBER_PATTERN})\\s+(.+)$`, "i"),
+  );
   if (!match) return null;
 
-  const houseNumber = match[1].trim();
+  const houseNumber = normalizeHouseNumber(match[1]);
 
   // Build a street query that looks like HPD streetname values
   const streetQuery = expandStreetTypes(
@@ -127,7 +167,7 @@ export function parseSuggestQuery(rawAddress: string): {
   streetQuery: string | null;
   zip: string | null;
 } | null {
-  const cleaned = rawAddress.trim().replace(/\s+/g, " ");
+  const cleaned = preprocessAddressInput(rawAddress);
   if (!cleaned) return null;
 
   const zipMatch = cleaned.match(/\b(\d{5})(?:-\d{4})?\s*$/);
@@ -140,15 +180,23 @@ export function parseSuggestQuery(rawAddress: string): {
     .trim();
 
   // House number only (user still typing the street)
-  const houseOnly = withoutCityState.match(/^(\d+[A-Za-z\-\/]?)$/);
+  const houseOnly = withoutCityState.match(
+    new RegExp(`^(${HOUSE_NUMBER_PATTERN})$`, "i"),
+  );
   if (houseOnly) {
-    return { houseNumber: houseOnly[1], streetQuery: null, zip };
+    return {
+      houseNumber: normalizeHouseNumber(houseOnly[1]),
+      streetQuery: null,
+      zip,
+    };
   }
 
-  const match = withoutCityState.match(/^(\d+[A-Za-z\-\/]?)\s+(.+)$/);
+  const match = withoutCityState.match(
+    new RegExp(`^(${HOUSE_NUMBER_PATTERN})\\s+(.+)$`, "i"),
+  );
   if (!match) return null;
 
-  const houseNumber = match[1].trim();
+  const houseNumber = normalizeHouseNumber(match[1]);
   const streetQuery = expandStreetTypes(
     normalizeOrdinals(
       match[2]
@@ -172,6 +220,23 @@ function escapeSoqlLiteral(value: string): string {
 }
 
 /**
+ * SoQL house-number match that accepts hyphenated and de-hyphenated forms.
+ * Example: user "35-01" also matches dataset value "3501", and vice versa when
+ * the typed value itself contains a hyphen.
+ */
+function buildHouseNumberClause(houseNumber: string): string {
+  const normalized = normalizeHouseNumber(houseNumber);
+  const escaped = escapeSoqlLiteral(normalized);
+  const withoutHyphen = escapeSoqlLiteral(normalized.replace(/-/g, ""));
+
+  if (normalized.includes("-") && withoutHyphen !== escaped) {
+    return `(\`housenumber\` = '${escaped}' OR \`housenumber\` = '${withoutHyphen}')`;
+  }
+
+  return `\`housenumber\` = '${escaped}'`;
+}
+
+/**
  * SoQL for the address-check call: find unique buildings that match what was typed.
  */
 export function buildSuggestSoql(
@@ -179,10 +244,9 @@ export function buildSuggestSoql(
   streetQuery: string | null,
   zip: string | null = null,
 ): string {
-  const house = escapeSoqlLiteral(houseNumber);
   const parts = [
     "SELECT `housenumber`, `streetname`, `boro`, `zip`",
-    `WHERE \`housenumber\` = '${house}'`,
+    `WHERE ${buildHouseNumberClause(houseNumber)}`,
   ];
 
   if (streetQuery) {
@@ -222,13 +286,12 @@ export function buildViolationsSoql(
   streetQuery: string,
   zip: string | null = null,
 ): string {
-  const house = escapeSoqlLiteral(houseNumber);
   const street = escapeSoqlLiteral(streetQuery);
 
   const parts = [
     "SELECT `violationid`, `ordernumber`, `class`, `novdescription`,",
     "`apartment`, `novissueddate`, `housenumber`, `streetname`, `boro`, `zip`",
-    `WHERE \`housenumber\` = '${house}'`,
+    `WHERE ${buildHouseNumberClause(houseNumber)}`,
     `AND upper(\`streetname\`) LIKE '%${street}%'`,
   ];
 

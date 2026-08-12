@@ -73,16 +73,19 @@ npm run dev
 
 ## How address search works
 
-1. User enters an NYC address on the landing page.
-2. Pressing **Enter** or clicking **Search** sends `POST /api/violations` with `{ address }`.
-3. The server parses house number + street text and runs a SODA3 SoQL query against Open HPD Violations.
-4. While waiting, a spinner appears under the form.
-5. When the call finishes (success or failure), the page scrolls so the search form is at the top.
-6. Outcomes:
-   - **Success with rows** → filterable table of unique violations
+1. User types an NYC address on the landing page.
+2. After a short pause, the app calls `POST /api/addresses/suggest` (address check) and shows under the search bar:
+   - a spinner (**Waiting for data**), or
+   - a list of matching unique buildings, or
+   - `No match found`
+3. Clicking a listed address calls `POST /api/violations` for that building.
+4. While waiting for violations, a spinner shows **Waiting for data**.
+5. When the call finishes, the page scrolls so the search form is at the top.
+6. Outcomes for both check and violations calls:
+   - **Success** → match list or filterable violations table
    - **Empty** → `No match found`
-   - **Error** → `Error in getting data`
-   - **Timeout (30 seconds)** → `The search timed out`
+   - **Error** → `Error in getting data` (also logged)
+   - **Timeout (30 seconds)** → `The search timed out` (also logged)
 
 Secrets stay on the server. The browser never receives your App Token or password.
 
@@ -95,7 +98,8 @@ Secrets stay on the server. The browser never receives your App Token or passwor
 | App Token header | `X-App-Token` |
 | Env vars | `NYC_OPENDATA_APP_TOKEN`, `NYC_OPENDATA_USERNAME`, `NYC_OPENDATA_PASSWORD`, `NYC_OPENDATA_BASE_URL` |
 | Helper | `lib/nyc-opendata.ts` |
-| API Route | `POST /api/violations` |
+| Address check API | `POST /api/addresses/suggest` |
+| Violations API | `POST /api/violations` |
 | Client timeout | 30 seconds |
 | Server timeout | 30 seconds |
 
@@ -145,11 +149,12 @@ npm run check
 app/
   page.tsx                    # Landing page
   layout.tsx                  # Shared page shell
-  api/violations/route.ts     # Address → NYC Open Data proxy
+  api/addresses/suggest/route.ts  # Address-check (match list while typing)
+  api/violations/route.ts     # Selected address → open violations
   api/gemini/route.ts         # Optional Gemini HTTP API
   actions/gemini.ts           # Optional Gemini Server Action
 components/
-  AddressSearchForm.tsx       # Search form, spinner, status messages
+  AddressSearchForm.tsx       # Suggest list + violations search UI
   ViolationsResults.tsx       # Filterable violations table
 lib/
   nyc-opendata.ts             # SODA3 helper (server only)

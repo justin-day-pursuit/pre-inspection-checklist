@@ -24,3 +24,22 @@ export type ViolationsSearchResult =
   | { status: "empty" }
   | { status: "error"; message: string }
   | { status: "timeout" };
+
+/** One unique building address shown in the match list while typing. */
+export type AddressMatch = {
+  /** Stable key for React lists + selection */
+  id: string;
+  houseNumber: string;
+  streetName: string;
+  borough: string;
+  zip: string;
+  /** Human-readable line shown in the dropdown */
+  label: string;
+};
+
+/** Outcomes for the address "check" / suggest call. */
+export type AddressSuggestResult =
+  | { status: "ok"; matches: AddressMatch[] }
+  | { status: "empty" }
+  | { status: "error"; message: string }
+  | { status: "timeout" };

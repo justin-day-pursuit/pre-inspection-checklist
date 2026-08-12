@@ -5,28 +5,62 @@
  * The client posts an address here; this route calls NYC Open Data on the server
  * so App Token / password never appear in the browser.
  *
+ * Called after the user picks a match from the address-check list.
+ *
  * POST /api/violations
- * body: { "address": "350 5th Ave, New York, NY" }
+ * body:
+ *   { "address": "7011 18 AVENUE 11204" }
+ *   OR
+ *   { "houseNumber": "7011", "streetName": "18 AVENUE", "zip": "11204" }
  */
 
 import { NextResponse } from "next/server";
-import { searchOpenViolationsByAddress } from "@/lib/nyc-opendata";
+import {
+  searchOpenViolationsByAddress,
+  searchOpenViolationsByBuilding,
+} from "@/lib/nyc-opendata";
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { address?: string };
+    const body = (await request.json()) as {
+      address?: string;
+      houseNumber?: string;
+      streetName?: string;
+      zip?: string;
+    };
+
+    const houseNumber = body.houseNumber?.trim() ?? "";
+    const streetName = body.streetName?.trim() ?? "";
+    const zip = body.zip?.trim() ?? "";
     const address = body.address?.trim() ?? "";
 
-    if (!address) {
+    const result =
+      houseNumber && streetName
+        ? await searchOpenViolationsByBuilding({
+            houseNumber,
+            streetName,
+            zip: zip || undefined,
+          })
+        : address
+          ? await searchOpenViolationsByAddress(address)
+          : null;
+
+    if (!result) {
+      console.error("[violations-search] error", {
+        address: "",
+        detail: "Address is required.",
+      });
       return NextResponse.json(
         { status: "error", message: "Address is required." },
         { status: 400 },
       );
     }
 
-    const result = await searchOpenViolationsByAddress(address);
+    const logAddress =
+      houseNumber && streetName
+        ? `${houseNumber} ${streetName}${zip ? ` ${zip}` : ""}`
+        : address;
 
-    // Mirror typed statuses so the UI can show the right message
     if (result.status === "ok") {
       return NextResponse.json({
         status: "ok",
@@ -39,12 +73,20 @@ export async function POST(request: Request) {
     }
 
     if (result.status === "timeout") {
+      console.error("[violations-search] timeout", {
+        address: logAddress,
+        message: "The search timed out",
+      });
       return NextResponse.json(
         { status: "timeout", message: "The search timed out" },
         { status: 504 },
       );
     }
 
+    console.error("[violations-search] error", {
+      address: logAddress,
+      message: result.message || "Error in getting data",
+    });
     return NextResponse.json(
       {
         status: "error",
@@ -55,18 +97,22 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
 
-    // If something above aborted unexpectedly, treat it as a timeout
     if (error instanceof Error && error.name === "AbortError") {
+      console.error("[violations-search] timeout", {
+        address: "(unknown)",
+        message: "AbortError",
+      });
       return NextResponse.json(
         { status: "timeout", message: "The search timed out" },
         { status: 504 },
       );
     }
 
-    return NextResponse.json(
-      { status: "error", message },
-      { status: 500 },
-    );
+    console.error("[violations-search] error", {
+      address: "(unknown)",
+      message,
+    });
+    return NextResponse.json({ status: "error", message }, { status: 500 });
   }
 }
 

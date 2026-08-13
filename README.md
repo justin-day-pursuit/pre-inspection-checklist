@@ -14,7 +14,7 @@ Google **Gemini 3.6 Flash** is still available on the server for later AI featur
 - After the API call finishes, the page scrolls so the search form is at the top
 - Results table: Vio #, Vio code, Class, Descript, Apt, Date (`novissueddate`)
 - Client-side per-column filters (dropdowns + Descript text search) within results
-- Clear messages for empty / no violation found / invalid / too little information / error / timeout
+- Clear messages for empty / no open violations found / invalid / too little information / error / timeout
 - Gemini helpers remain available (`lib/gemini.ts`, Server Action, `/api/gemini`)
 - Build verification with `npm run check` (`npm test` then `npm run build`)
 - Lightweight Node tests via `npm test`
@@ -78,14 +78,13 @@ npm run dev
 2. After a short pause, the app classifies the typed text, then (when valid) calls `POST /api/addresses/suggest` and shows under the search bar:
    - a spinner (**Waiting for data**), or
    - a list of matching unique buildings, or
-   - `Too little information` / `Invalid search` / `No match found`
+   - `Too little information` / `Invalid search` / `No open violations found`
 3. Clicking a listed address calls `POST /api/violations` for that building.
 4. While waiting for violations, a spinner shows **Waiting for data**.
 5. When the call finishes, the page scrolls so the search form is at the top.
 6. Outcomes for both check and violations calls:
    - **Success** → match list or filterable violations table
-   - **Empty (address check)** → `No match found` (no matching building)
-   - **Empty (violations)** → `No violation found` (valid building, zero open violations)
+   - **Empty** → `No open violations found` (valid address format, no open HPD rows — the open-violations dataset does not list clear buildings)
    - **Too little information** → house-only or street fragment too short (no Open Data call)
    - **Invalid search** → jumbled / non-address text (no Open Data call)
    - **Error** → `Error in getting data` (also logged)

@@ -58,6 +58,10 @@ export async function POST(request: Request) {
       );
     }
 
+    if (result.status === "aborted") {
+      return NextResponse.json({ status: "aborted" }, { status: 499 });
+    }
+
     if (result.status === "timeout") {
       console.error("[address-suggest] timeout", { query });
       return NextResponse.json(
@@ -79,14 +83,7 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      console.error("[address-suggest] timeout", {
-        query: "(unknown)",
-        message: "AbortError",
-      });
-      return NextResponse.json(
-        { status: "timeout", message: CONNECTION_TIMED_OUT_MESSAGE },
-        { status: 504 },
-      );
+      return NextResponse.json({ status: "aborted" }, { status: 499 });
     }
 
     const message = error instanceof Error ? error.message : "Unknown error";

@@ -10,7 +10,7 @@
  * 4. After that click, the match list stays hidden until the user focuses
  *    the search bar again (or types a new query).
  *
- * Suggest + violations fetches use a 10s timeout with Connection timed out.
+ * Suggest + violations fetches use a 15s client timeout with Connection timed out.
  */
 
 import { FormEvent, useEffect, useRef, useState } from "react";
@@ -27,8 +27,8 @@ import ViolationsResults from "@/components/ViolationsResults";
 /** Wait this long after typing before calling the address-check API. */
 const SUGGEST_DEBOUNCE_MS = 350;
 
-/** Shared 10-second client timeout for check + violations calls. */
-const CLIENT_TIMEOUT_MS = 10_000;
+/** Shared 15-second client timeout for check + violations calls. */
+const CLIENT_TIMEOUT_MS = 15_000;
 
 type SuggestStatus =
   | "idle"
@@ -78,15 +78,25 @@ export default function AddressSearchForm() {
   const formSectionRef = useRef<HTMLElement | null>(null);
   // Ignore stale suggest responses when the user keeps typing
   const suggestRequestId = useRef(0);
+  // Next suggest effect run skips the 350ms debounce (explicit Search)
+  const skipSuggestDebounceRef = useRef(false);
+  // Abort in-flight violations fetch on unmount or a newer selection
+  const violationsAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      violationsAbortRef.current?.abort();
+    };
+  }, []);
 
   /**
    * Debounced address-check while typing.
-   * Shows loading → list, or validation / empty / timeout messages.
+   * Local classify runs immediately; only the network call is debounced.
    */
   useEffect(() => {
     const trimmed = address.trim();
 
-    // Reset suggestions when the box is too short / cleared
+    // Reset suggestions when the box is too short / cleared (typing stays idle)
     if (trimmed.length < MIN_QUERY_LENGTH) {
       setSuggestStatus("idle");
       setMatches([]);
@@ -103,33 +113,33 @@ export default function AddressSearchForm() {
       return;
     }
 
+    // Sync classify before debounce so insufficient/invalid clear stale matches now
+    const classified = classifySuggestInput(trimmed);
+    if (classified.status === "idle") {
+      setMatches([]);
+      setSuggestStatus("idle");
+      return;
+    }
+    if (classified.status === "insufficient") {
+      setMatches([]);
+      setSuggestStatus("insufficient");
+      return;
+    }
+    if (classified.status === "invalid") {
+      setMatches([]);
+      setSuggestStatus("invalid");
+      return;
+    }
+
+    const delay = skipSuggestDebounceRef.current ? 0 : SUGGEST_DEBOUNCE_MS;
+    skipSuggestDebounceRef.current = false;
+
     const controller = new AbortController();
     const requestId = ++suggestRequestId.current;
     const timer = window.setTimeout(async () => {
-      // Classify locally before hitting Open Data
-      const classified = classifySuggestInput(trimmed);
-      if (classified.status === "idle") {
-        if (requestId !== suggestRequestId.current) return;
-        setMatches([]);
-        setSuggestStatus("idle");
-        return;
-      }
-      if (classified.status === "insufficient") {
-        if (requestId !== suggestRequestId.current) return;
-        setMatches([]);
-        setSuggestStatus("insufficient");
-        return;
-      }
-      if (classified.status === "invalid") {
-        if (requestId !== suggestRequestId.current) return;
-        setMatches([]);
-        setSuggestStatus("invalid");
-        return;
-      }
-
       setSuggestStatus("loading");
 
-      // Only the 10s timer sets this; cleanup abort must not look like a timeout.
+      // Only the client timer sets this; cleanup abort must not look like a timeout.
       let timedOutByTimer = false;
       const timeoutId = window.setTimeout(() => {
         timedOutByTimer = true;
@@ -153,6 +163,20 @@ export default function AddressSearchForm() {
 
         // Skip if a newer keystroke already started another check
         if (requestId !== suggestRequestId.current) return;
+
+        // Timer abort may surface as HTTP 499/aborted instead of AbortError
+        if (payload.status === "aborted") {
+          if (timedOutByTimer) {
+            console.error("[address-suggest] timeout", {
+              query: trimmed,
+              message: payload.message || CONNECTION_TIMED_OUT_MESSAGE,
+            });
+            setMatches([]);
+            setSuggestStatus("timeout");
+          }
+          // Cleanup / superseded — leave UI alone
+          return;
+        }
 
         if (
           payload.status === "timeout" ||
@@ -208,7 +232,7 @@ export default function AddressSearchForm() {
 
           console.error("[address-suggest] timeout", {
             query: trimmed,
-            message: "Client abort after 10s",
+            message: "Client abort after 15s",
           });
           setMatches([]);
           setSuggestStatus("timeout");
@@ -224,7 +248,7 @@ export default function AddressSearchForm() {
       } finally {
         window.clearTimeout(timeoutId);
       }
-    }, SUGGEST_DEBOUNCE_MS);
+    }, delay);
 
     return () => {
       window.clearTimeout(timer);
@@ -245,8 +269,11 @@ export default function AddressSearchForm() {
     setViolationsStatus("loading");
     setLastSearchedAddress(match.label);
 
+    violationsAbortRef.current?.abort();
     const controller = new AbortController();
-    // Only the 10s timer sets this; keeps AbortError handling explicit.
+    violationsAbortRef.current = controller;
+
+    // Only the client timer sets this; keeps AbortError handling explicit.
     let timedOutByTimer = false;
     const timer = window.setTimeout(() => {
       timedOutByTimer = true;
@@ -270,6 +297,19 @@ export default function AddressSearchForm() {
         payload = (await response.json()) as ViolationsApiResponse;
       } catch {
         payload = {};
+      }
+
+      // Timer abort may surface as HTTP 499/aborted instead of AbortError
+      if (payload.status === "aborted") {
+        if (timedOutByTimer) {
+          console.error("[violations-search] timeout", {
+            address: match.label,
+            message: payload.message || CONNECTION_TIMED_OUT_MESSAGE,
+          });
+          setViolationsStatus("timeout");
+        }
+        // Cleanup / superseded — leave UI alone
+        return;
       }
 
       if (
@@ -301,11 +341,12 @@ export default function AddressSearchForm() {
       }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
+        // Cleanup / unmount abort — leave status alone
         if (!timedOutByTimer) return;
 
         console.error("[violations-search] timeout", {
           address: match.label,
-          message: "Client abort after 10s",
+          message: "Client abort after 15s",
         });
         setViolationsStatus("timeout");
       } else {
@@ -317,6 +358,9 @@ export default function AddressSearchForm() {
       }
     } finally {
       window.clearTimeout(timer);
+      if (violationsAbortRef.current === controller) {
+        violationsAbortRef.current = null;
+      }
       requestAnimationFrame(() => {
         formSectionRef.current?.scrollIntoView({
           behavior: "smooth",
@@ -333,6 +377,8 @@ export default function AddressSearchForm() {
   function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = address.trim();
+    setSuggestionsEnabled(true);
+
     if (trimmed.length < MIN_QUERY_LENGTH) {
       setSuggestStatus("insufficient");
       setMatches([]);
@@ -356,17 +402,19 @@ export default function AddressSearchForm() {
     setViolationsStatus("idle");
     // Nudge suggest status so the user sees loading immediately
     setSuggestStatus("loading");
-    setSuggestionsEnabled(true);
     setAddress(trimmed);
     // Force suggest effect to re-run even when address text is unchanged
+    skipSuggestDebounceRef.current = true;
     setSuggestNonce((value) => value + 1);
   }
 
   const showSuggestPanel =
     suggestionsEnabled &&
-    address.trim().length >= MIN_QUERY_LENGTH &&
     violationsStatus !== "loading" &&
-    suggestStatus !== "idle";
+    suggestStatus !== "idle" &&
+    (address.trim().length >= MIN_QUERY_LENGTH ||
+      suggestStatus === "insufficient" ||
+      suggestStatus === "invalid");
 
   return (
     <section ref={formSectionRef} className="mt-8 w-full scroll-mt-6">

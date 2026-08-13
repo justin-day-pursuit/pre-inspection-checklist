@@ -94,6 +94,10 @@ export async function POST(request: Request) {
       );
     }
 
+    if (result.status === "aborted") {
+      return NextResponse.json({ status: "aborted" }, { status: 499 });
+    }
+
     if (result.status === "timeout") {
       console.error("[violations-search] timeout", {
         address: logAddress,
@@ -117,19 +121,11 @@ export async function POST(request: Request) {
       { status: 502 },
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-
     if (error instanceof Error && error.name === "AbortError") {
-      console.error("[violations-search] timeout", {
-        address: "(unknown)",
-        message: "AbortError",
-      });
-      return NextResponse.json(
-        { status: "timeout", message: CONNECTION_TIMED_OUT_MESSAGE },
-        { status: 504 },
-      );
+      return NextResponse.json({ status: "aborted" }, { status: 499 });
     }
 
+    const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[violations-search] error", {
       address: "(unknown)",
       message,

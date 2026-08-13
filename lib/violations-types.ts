@@ -32,7 +32,8 @@ export type ViolationsSearchResult =
   | { status: "invalid" }
   | { status: "insufficient" }
   | { status: "error"; message: string }
-  | { status: "timeout" };
+  | { status: "timeout" }
+  | { status: "aborted" };
 
 /** One unique building address shown in the match list while typing. */
 export type AddressMatch = {
@@ -53,4 +54,5 @@ export type AddressSuggestResult =
   | { status: "invalid" }
   | { status: "insufficient" }
   | { status: "error"; message: string }
-  | { status: "timeout" };
+  | { status: "timeout" }
+  | { status: "aborted" };

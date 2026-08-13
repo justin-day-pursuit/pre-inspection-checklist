@@ -14,9 +14,9 @@ Google **Gemini 3.6 Flash** is still available on the server for later AI featur
 - After the API call finishes, the page scrolls so the search form is at the top
 - Results table: Vio #, Vio code, Class, Descript, Apt, Date (`novissueddate`)
 - Client-side per-column filters (dropdowns + Descript text search) within results
-- Clear messages for empty / invalid / too little information / error / 10-second timeout
+- Clear messages for empty / invalid / too little information / error / timeout
 - Gemini helpers remain available (`lib/gemini.ts`, Server Action, `/api/gemini`)
-- Build verification with `npm run build` / `npm run check`
+- Build verification with `npm run check` (`npm test` then `npm run build`)
 - Lightweight Node tests via `npm test`
 
 ## Not included yet
@@ -28,7 +28,7 @@ Google **Gemini 3.6 Flash** is still available on the server for later AI featur
 
 ## Prerequisites
 
-- Node.js 20+ and npm
+- Node.js ≥ 20.3 and npm
 - An NYC Open Data / Socrata **App Token** (required for SODA3)
 - Optional: NYC Open Data username + password for Basic Auth
 - Optional: Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey)
@@ -88,7 +88,7 @@ npm run dev
    - **Too little information** → house-only or street fragment too short (no Open Data call)
    - **Invalid search** → jumbled / non-address text (no Open Data call)
    - **Error** → `Error in getting data` (also logged)
-   - **Timeout (10 seconds)** → `Connection timed out` (client abort also cancels the server NYC fetch)
+   - **Timeout** → `Connection timed out` (15s client / 10s server; client abort also cancels the server NYC fetch)
 
 Secrets stay on the server. The browser never receives your App Token or password.
 
@@ -104,7 +104,7 @@ Secrets stay on the server. The browser never receives your App Token or passwor
 | Address parse / classify | `lib/address-query.ts` |
 | Address check API | `POST /api/addresses/suggest` |
 | Violations API | `POST /api/violations` |
-| Client timeout | 10 seconds |
+| Client timeout | 15 seconds |
 | Server timeout | 10 seconds |
 
 Table columns shown:
@@ -131,14 +131,10 @@ Table columns shown:
 ## Verify the build
 
 ```bash
-npm run build
-```
-
-Or:
-
-```bash
 npm run check
 ```
+
+Runs `npm test` then `npm run build`. Or run them separately.
 
 ## Useful scripts
 
@@ -146,7 +142,7 @@ npm run check
 | --- | --- |
 | `npm run dev` | Local development server |
 | `npm run build` | Production build (compile check) |
-| `npm run check` | Same as `npm run build` |
+| `npm run check` | Run `npm test` then `npm run build` |
 | `npm test` | Run Node tests for address classify + filter helpers |
 | `npm run start` | Run the production build locally |
 | `npm run lint` | Run ESLint |

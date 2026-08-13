@@ -291,7 +291,13 @@ export default function AddressSearchForm() {
 
   return (
     <section ref={formSectionRef} className="mt-8 w-full scroll-mt-6">
-      <form onSubmit={handleSearchSubmit} className="w-full max-w-xl" noValidate>
+      {/* autoComplete off on the form + a non-address input name to block browser autofill */}
+      <form
+        onSubmit={handleSearchSubmit}
+        className="w-full max-w-xl"
+        noValidate
+        autoComplete="off"
+      >
         <label
           htmlFor="address-search"
           className="block text-sm font-medium text-zinc-700"
@@ -306,8 +312,9 @@ export default function AddressSearchForm() {
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-stretch">
           <input
             id="address-search"
-            name="address"
-            type="text"
+            // Avoid name="address" — browsers treat that as an autofill target
+            name="hpd-building-query"
+            type="search"
             value={address}
             onFocus={() => {
               // Re-entering the search bar unlocks the address match list again
@@ -324,6 +331,12 @@ export default function AddressSearchForm() {
             }}
             placeholder="e.g. 7011 18th Ave, Brooklyn, NY 11204"
             autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            data-1p-ignore
+            data-lpignore="true"
+            data-form-type="other"
             disabled={violationsStatus === "loading"}
             className="min-h-11 w-full flex-1 rounded-md border border-zinc-300 bg-white px-3 text-base text-zinc-900 outline-none ring-zinc-400 placeholder:text-zinc-400 focus:ring-2 disabled:bg-zinc-100"
           />

@@ -8,6 +8,13 @@
  * Protocol: SODA3 POST /api/v3/views/{id}/query.json
  */
 
+import {
+  classifyAddressInput,
+  classifySuggestInput,
+  normalizeHouseNumber,
+  parseNycAddress,
+  parseSuggestQuery,
+} from "@/lib/address-query";
 import type {
   AddressMatch,
   AddressSuggestResult,
@@ -22,6 +29,14 @@ export type {
   ViolationsSearchResult,
 };
 
+export {
+  classifyAddressInput,
+  classifySuggestInput,
+  normalizeHouseNumber,
+  parseNycAddress,
+  parseSuggestQuery,
+} from "@/lib/address-query";
+
 /** Max unique buildings returned for one address-check call. */
 const SUGGEST_PAGE_SIZE = 50;
 
@@ -29,190 +44,10 @@ const DEFAULT_ENDPOINT =
   "https://data.cityofnewyork.us/api/v3/views/csn4-vhvf/query.json";
 
 /** Stop waiting for NYC Open Data after this many milliseconds. */
-export const NYC_OPENDATA_TIMEOUT_MS = 30_000;
+export const NYC_OPENDATA_TIMEOUT_MS = 10_000;
 
 /** Max rows returned for one address search. */
 const PAGE_SIZE = 500;
-
-/**
- * Expand common street-type shorthands to the full words HPD usually stores.
- * Example: "AVE" → "AVENUE", "ST" → "STREET", "PL" → "PLACE"
- */
-const STREET_TYPE_EXPANSIONS: Array<[RegExp, string]> = [
-  [/\b(STREET|STR|ST)\b/g, "STREET"],
-  [/\b(AVENUE|AVE)\b/g, "AVENUE"],
-  [/\b(PLACE|PL)\b/g, "PLACE"],
-  [/\b(ROAD|RD)\b/g, "ROAD"],
-  [/\b(BOULEVARD|BLVD)\b/g, "BOULEVARD"],
-  [/\b(DRIVE|DR)\b/g, "DRIVE"],
-  [/\b(LANE|LN)\b/g, "LANE"],
-  [/\b(COURT|CT)\b/g, "COURT"],
-  [/\b(PARKWAY|PKWY)\b/g, "PARKWAY"],
-  [/\b(HIGHWAY|HWY)\b/g, "HIGHWAY"],
-  [/\b(SQUARE|SQ)\b/g, "SQUARE"],
-  [/\b(TERRACE|TERR|TER)\b/g, "TERRACE"],
-];
-
-/**
- * Turn ordinal street numbers into plain numbers so they match HPD names.
- * Example: "18TH" → "18", "2ND" → "2", "1ST" → "1"
- */
-function normalizeOrdinals(street: string): string {
-  return street.replace(/\b(\d+)(ST|ND|RD|TH)\b/g, "$1");
-}
-
-/**
- * Normalize NYC building / house numbers, including Queens-style hyphens.
- * Examples:
- *   "35 - 01" → "35-01"
- *   "35-01a"  → "35-01A"
- *   "7011-A"  → "7011A"
- *   "7011"    → "7011"
- */
-export function normalizeHouseNumber(raw: string): string {
-  return raw
-    .trim()
-    .toUpperCase()
-    // Remove spaces around hyphens: "35 - 01" → "35-01"
-    .replace(/\s*-\s*/g, "-")
-    // Letter-only suffix after a hyphen (rare typing): "7011-A" → "7011A"
-    .replace(/-([A-Z])$/g, "$1")
-    // Collapse any leftover internal spaces inside the house token
-    .replace(/\s+/g, "");
-}
-
-/**
- * House-number token used at the start of an address.
- * Supports plain ("7011"), letter suffix ("7011A"), and hyphenated Queens-style ("35-01", "35-01A").
- */
-const HOUSE_NUMBER_PATTERN = String.raw`\d+(?:-\d+)?[A-Za-z]?`;
-
-/**
- * Clean an address string before house/street splitting.
- * Joins spaced hyphens in building numbers: "35 - 01 35 Ave" → "35-01 35 Ave"
- */
-function preprocessAddressInput(raw: string): string {
-  return raw
-    .trim()
-    .replace(/\s+/g, " ")
-    .replace(/(\d)\s*-\s*(\d)/g, "$1-$2")
-    .replace(/(\d)\s*-\s*([A-Za-z])\b/g, "$1$2");
-}
-
-/**
- * Expand street-type abbreviations to full words (HPD-friendly).
- */
-function expandStreetTypes(street: string): string {
-  let result = street;
-  for (const [pattern, fullWord] of STREET_TYPE_EXPANSIONS) {
-    result = result.replace(pattern, fullWord);
-  }
-  return result;
-}
-
-/**
- * Split a typed address into house number + street text (+ optional ZIP).
- * Example: "7011 18th Ave 11204" → house "7011", street "18 AVENUE", zip "11204"
- */
-export function parseNycAddress(rawAddress: string): {
-  houseNumber: string;
-  streetQuery: string;
-  zip: string | null;
-} | null {
-  const cleaned = preprocessAddressInput(rawAddress);
-  if (!cleaned) return null;
-
-  // Capture a trailing ZIP when the user typed one (used as an optional SoQL filter)
-  const zipMatch = cleaned.match(/\b(\d{5})(?:-\d{4})?\s*$/);
-  const zip = zipMatch ? zipMatch[1] : null;
-
-  // Drop trailing city / state / ZIP noise before reading house + street
-  const withoutCityState = cleaned
-    .replace(/,?\s*(new york|nyc|brooklyn|queens|bronx|manhattan|staten island)\b.*$/i, "")
-    .replace(/,?\s*ny\s*\d{5}(-\d{4})?$/i, "")
-    .replace(/\s+\d{5}(-\d{4})?$/i, "")
-    .trim();
-
-  const match = withoutCityState.match(
-    new RegExp(`^(${HOUSE_NUMBER_PATTERN})\\s+(.+)$`, "i"),
-  );
-  if (!match) return null;
-
-  const houseNumber = normalizeHouseNumber(match[1]);
-
-  // Build a street query that looks like HPD streetname values
-  const streetQuery = expandStreetTypes(
-    normalizeOrdinals(
-      match[2]
-        .trim()
-        .toUpperCase()
-        .replace(/[^A-Z0-9\s]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim(),
-    ),
-  )
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (!houseNumber || !streetQuery) return null;
-  return { houseNumber, streetQuery, zip };
-}
-
-/**
- * Looser parse for the live address-check list (while the user is still typing).
- * Allows house number only, or house + partial street text.
- */
-export function parseSuggestQuery(rawAddress: string): {
-  houseNumber: string;
-  streetQuery: string | null;
-  zip: string | null;
-} | null {
-  const cleaned = preprocessAddressInput(rawAddress);
-  if (!cleaned) return null;
-
-  const zipMatch = cleaned.match(/\b(\d{5})(?:-\d{4})?\s*$/);
-  const zip = zipMatch ? zipMatch[1] : null;
-
-  const withoutCityState = cleaned
-    .replace(/,?\s*(new york|nyc|brooklyn|queens|bronx|manhattan|staten island)\b.*$/i, "")
-    .replace(/,?\s*ny\s*\d{5}(-\d{4})?$/i, "")
-    .replace(/\s+\d{5}(-\d{4})?$/i, "")
-    .trim();
-
-  // House number only (user still typing the street)
-  const houseOnly = withoutCityState.match(
-    new RegExp(`^(${HOUSE_NUMBER_PATTERN})$`, "i"),
-  );
-  if (houseOnly) {
-    return {
-      houseNumber: normalizeHouseNumber(houseOnly[1]),
-      streetQuery: null,
-      zip,
-    };
-  }
-
-  const match = withoutCityState.match(
-    new RegExp(`^(${HOUSE_NUMBER_PATTERN})\\s+(.+)$`, "i"),
-  );
-  if (!match) return null;
-
-  const houseNumber = normalizeHouseNumber(match[1]);
-  const streetQuery = expandStreetTypes(
-    normalizeOrdinals(
-      match[2]
-        .trim()
-        .toUpperCase()
-        .replace(/[^A-Z0-9\s]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim(),
-    ),
-  )
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (!houseNumber) return null;
-  return { houseNumber, streetQuery: streetQuery || null, zip };
-}
 
 /** Escape a value so it is safe inside a single-quoted SoQL string. */
 function escapeSoqlLiteral(value: string): string {
@@ -419,13 +254,14 @@ function logSuggestFailure(
 }
 
 /**
- * Shared SODA3 POST with 30s timeout.
- * Returns raw rows, or a typed fail status.
+ * Shared SODA3 POST with 10s timeout.
+ * Optional externalSignal (e.g. request.signal) cancels the NYC fetch early.
  */
 async function postNycSoql(
   query: string,
   pageSize: number,
   logContext: string,
+  externalSignal?: AbortSignal,
 ): Promise<
   | { status: "ok"; rows: Record<string, unknown>[] }
   | { status: "error"; message: string }
@@ -440,8 +276,20 @@ async function postNycSoql(
     };
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), NYC_OPENDATA_TIMEOUT_MS);
+  // Already aborted before we start (client disconnected)
+  if (externalSignal?.aborted) {
+    return { status: "timeout" };
+  }
+
+  const timeoutController = new AbortController();
+  const timer = setTimeout(
+    () => timeoutController.abort(),
+    NYC_OPENDATA_TIMEOUT_MS,
+  );
+
+  const signal = externalSignal
+    ? AbortSignal.any([timeoutController.signal, externalSignal])
+    : timeoutController.signal;
 
   try {
     const headers: Record<string, string> = {
@@ -463,7 +311,7 @@ async function postNycSoql(
         page: { pageNumber: 1, pageSize },
         includeSynthetic: false,
       }),
-      signal: controller.signal,
+      signal,
       cache: "no-store",
     });
 
@@ -507,16 +355,25 @@ async function postNycSoql(
  */
 export async function suggestAddressesByQuery(
   query: string,
+  signal?: AbortSignal,
 ): Promise<AddressSuggestResult> {
-  const parsed = parseSuggestQuery(query);
-  if (!parsed) {
-    return { status: "empty" };
+  const classified = classifySuggestInput(query);
+  if (classified.status === "idle" || classified.status === "insufficient") {
+    return { status: "insufficient" };
+  }
+  if (classified.status === "invalid") {
+    return { status: "invalid" };
   }
 
   const result = await postNycSoql(
-    buildSuggestSoql(parsed.houseNumber, parsed.streetQuery, parsed.zip),
+    buildSuggestSoql(
+      classified.houseNumber,
+      classified.streetQuery,
+      classified.zip,
+    ),
     SUGGEST_PAGE_SIZE,
     "address-suggest",
+    signal,
   );
 
   if (result.status === "timeout") {
@@ -569,20 +426,29 @@ export async function suggestAddressesByQuery(
 
 /**
  * Search open HPD violations for a typed NYC address.
- * Uses a 30-second AbortController so the call cannot hang forever.
+ * Uses a 10-second AbortController so the call cannot hang forever.
  */
 export async function searchOpenViolationsByAddress(
   address: string,
+  signal?: AbortSignal,
 ): Promise<ViolationsSearchResult> {
-  const parsed = parseNycAddress(address);
-  if (!parsed) {
-    return { status: "empty" };
+  const classified = classifyAddressInput(address);
+  if (classified.status === "idle" || classified.status === "insufficient") {
+    return { status: "insufficient" };
+  }
+  if (classified.status === "invalid") {
+    return { status: "invalid" };
   }
 
   const result = await postNycSoql(
-    buildViolationsSoql(parsed.houseNumber, parsed.streetQuery, parsed.zip),
+    buildViolationsSoql(
+      classified.houseNumber,
+      classified.streetQuery,
+      classified.zip,
+    ),
     PAGE_SIZE,
     "violations-search",
+    signal,
   );
 
   if (result.status === "timeout") {
@@ -608,11 +474,14 @@ export async function searchOpenViolationsByAddress(
  * Exact building lookup used after the user clicks a suggested address.
  * Uses the HPD streetname as-is (already normalized in the dataset).
  */
-export async function searchOpenViolationsByBuilding(match: {
-  houseNumber: string;
-  streetName: string;
-  zip?: string;
-}): Promise<ViolationsSearchResult> {
+export async function searchOpenViolationsByBuilding(
+  match: {
+    houseNumber: string;
+    streetName: string;
+    zip?: string;
+  },
+  signal?: AbortSignal,
+): Promise<ViolationsSearchResult> {
   const addressLabel = formatAddressMatchLabel({
     houseNumber: match.houseNumber,
     streetName: match.streetName,
@@ -628,6 +497,7 @@ export async function searchOpenViolationsByBuilding(match: {
     ),
     PAGE_SIZE,
     "violations-search",
+    signal,
   );
 
   if (result.status === "timeout") {

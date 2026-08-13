@@ -16,6 +16,11 @@
 
 import { NextResponse } from "next/server";
 import {
+  CONNECTION_TIMED_OUT_MESSAGE,
+  INVALID_SEARCH_MESSAGE,
+  TOO_LITTLE_INFORMATION_MESSAGE,
+} from "@/lib/address-query";
+import {
   searchOpenViolationsByAddress,
   searchOpenViolationsByBuilding,
 } from "@/lib/nyc-opendata";
@@ -36,13 +41,16 @@ export async function POST(request: Request) {
 
     const result =
       houseNumber && streetName
-        ? await searchOpenViolationsByBuilding({
-            houseNumber,
-            streetName,
-            zip: zip || undefined,
-          })
+        ? await searchOpenViolationsByBuilding(
+            {
+              houseNumber,
+              streetName,
+              zip: zip || undefined,
+            },
+            request.signal,
+          )
         : address
-          ? await searchOpenViolationsByAddress(address)
+          ? await searchOpenViolationsByAddress(address, request.signal)
           : null;
 
     if (!result) {
@@ -72,13 +80,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ status: "empty" });
     }
 
+    if (result.status === "insufficient") {
+      return NextResponse.json(
+        { status: "insufficient", message: TOO_LITTLE_INFORMATION_MESSAGE },
+        { status: 400 },
+      );
+    }
+
+    if (result.status === "invalid") {
+      return NextResponse.json(
+        { status: "invalid", message: INVALID_SEARCH_MESSAGE },
+        { status: 400 },
+      );
+    }
+
     if (result.status === "timeout") {
       console.error("[violations-search] timeout", {
         address: logAddress,
-        message: "The search timed out",
+        message: CONNECTION_TIMED_OUT_MESSAGE,
       });
       return NextResponse.json(
-        { status: "timeout", message: "The search timed out" },
+        { status: "timeout", message: CONNECTION_TIMED_OUT_MESSAGE },
         { status: 504 },
       );
     }
@@ -103,7 +125,7 @@ export async function POST(request: Request) {
         message: "AbortError",
       });
       return NextResponse.json(
-        { status: "timeout", message: "The search timed out" },
+        { status: "timeout", message: CONNECTION_TIMED_OUT_MESSAGE },
         { status: 504 },
       );
     }
@@ -116,5 +138,5 @@ export async function POST(request: Request) {
   }
 }
 
-/** Allow the route a little longer than the 30s NYC fetch timeout. */
-export const maxDuration = 35;
+/** Allow the route a little longer than the 10s NYC fetch timeout. */
+export const maxDuration = 15;

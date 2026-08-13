@@ -12,9 +12,9 @@ Google **Gemini 3.6 Flash** is still available on the server for later AI featur
 - Server-side SODA3 query to Open HPD Violations (`csn4-vhvf`)
 - Loading spinner under the form while waiting
 - After the API call finishes, the page scrolls so the search form is at the top
-- Results table: Order Number, Description, Original Creation Date (`approveddate`)
+- Results table: Vio #, Vio code, Class, Descript, Apt, Date (`novissueddate`)
 - Client-side filter/search within results
-- Clear messages for empty / error / 30-second timeout
+- Clear messages for empty / invalid / too little information / error / 10-second timeout
 - Gemini helpers remain available (`lib/gemini.ts`, Server Action, `/api/gemini`)
 - Build verification with `npm run build` / `npm run check`
 
@@ -74,18 +74,20 @@ npm run dev
 ## How address search works
 
 1. User types an NYC address on the landing page.
-2. After a short pause, the app calls `POST /api/addresses/suggest` (address check) and shows under the search bar:
+2. After a short pause, the app classifies the typed text, then (when valid) calls `POST /api/addresses/suggest` and shows under the search bar:
    - a spinner (**Waiting for data**), or
    - a list of matching unique buildings, or
-   - `No match found`
+   - `Too little information` / `Invalid search` / `No match found`
 3. Clicking a listed address calls `POST /api/violations` for that building.
 4. While waiting for violations, a spinner shows **Waiting for data**.
 5. When the call finishes, the page scrolls so the search form is at the top.
 6. Outcomes for both check and violations calls:
    - **Success** → match list or filterable violations table
    - **Empty** → `No match found`
+   - **Too little information** → house-only or street fragment too short (no Open Data call)
+   - **Invalid search** → jumbled / non-address text (no Open Data call)
    - **Error** → `Error in getting data` (also logged)
-   - **Timeout (30 seconds)** → `The search timed out` (also logged)
+   - **Timeout (10 seconds)** → `Connection timed out` (client abort also cancels the server NYC fetch)
 
 Secrets stay on the server. The browser never receives your App Token or password.
 
@@ -98,10 +100,11 @@ Secrets stay on the server. The browser never receives your App Token or passwor
 | App Token header | `X-App-Token` |
 | Env vars | `NYC_OPENDATA_APP_TOKEN`, `NYC_OPENDATA_USERNAME`, `NYC_OPENDATA_PASSWORD`, `NYC_OPENDATA_BASE_URL` |
 | Helper | `lib/nyc-opendata.ts` |
+| Address parse / classify | `lib/address-query.ts` |
 | Address check API | `POST /api/addresses/suggest` |
 | Violations API | `POST /api/violations` |
-| Client timeout | 30 seconds |
-| Server timeout | 30 seconds |
+| Client timeout | 10 seconds |
+| Server timeout | 10 seconds |
 
 Table columns shown:
 
@@ -160,6 +163,7 @@ components/
   AddressSearchForm.tsx       # Suggest list + violations search UI
   ViolationsResults.tsx       # Filterable violations table
 lib/
+  address-query.ts            # Client-safe address parse / classify
   nyc-opendata.ts             # SODA3 helper (server only)
   violations-types.ts         # Shared TypeScript types
   gemini.ts                   # Gemini helper (server only)

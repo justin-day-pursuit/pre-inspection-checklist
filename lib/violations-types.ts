@@ -29,6 +29,8 @@ export type HpdViolation = {
 export type ViolationsSearchResult =
   | { status: "ok"; violations: HpdViolation[] }
   | { status: "empty" }
+  | { status: "invalid" }
+  | { status: "insufficient" }
   | { status: "error"; message: string }
   | { status: "timeout" };
 
@@ -48,5 +50,7 @@ export type AddressMatch = {
 export type AddressSuggestResult =
   | { status: "ok"; matches: AddressMatch[] }
   | { status: "empty" }
+  | { status: "invalid" }
+  | { status: "insufficient" }
   | { status: "error"; message: string }
   | { status: "timeout" };

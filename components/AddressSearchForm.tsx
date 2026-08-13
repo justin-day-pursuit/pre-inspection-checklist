@@ -5,29 +5,47 @@
  * -----------------
  * Flow:
  * 1. User types an address → debounced "check" call lists matching buildings
- * 2. Under the bar: loading, match list, or "No match found"
+ * 2. Under the bar: loading, match list, invalid / too-little, or "No match found"
  * 3. User clicks a listed address → fetch open violations for that building
  * 4. After that click, the match list stays hidden until the user focuses
  *    the search bar again (or types a new query).
  *
- * Violation fetch still uses a 30s timeout with error/timeout messages + logs.
+ * Suggest + violations fetches use a 10s timeout with Connection timed out.
  */
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import {
+  CONNECTION_TIMED_OUT_MESSAGE,
+  INVALID_SEARCH_MESSAGE,
+  MIN_QUERY_LENGTH,
+  TOO_LITTLE_INFORMATION_MESSAGE,
+  classifySuggestInput,
+} from "@/lib/address-query";
 import type { AddressMatch, HpdViolation } from "@/lib/violations-types";
 import ViolationsResults from "@/components/ViolationsResults";
 
 /** Wait this long after typing before calling the address-check API. */
 const SUGGEST_DEBOUNCE_MS = 350;
 
-/** Shared 30-second client timeout for check + violations calls. */
-const CLIENT_TIMEOUT_MS = 30_000;
+/** Shared 10-second client timeout for check + violations calls. */
+const CLIENT_TIMEOUT_MS = 10_000;
 
-/** Need at least this many characters before we ask Open Data for matches. */
-const MIN_QUERY_LENGTH = 2;
-
-type SuggestStatus = "idle" | "loading" | "ok" | "empty" | "error" | "timeout";
-type ViolationsStatus = "idle" | "loading" | "ok" | "empty" | "error" | "timeout";
+type SuggestStatus =
+  | "idle"
+  | "loading"
+  | "ok"
+  | "empty"
+  | "invalid"
+  | "insufficient"
+  | "error"
+  | "timeout";
+type ViolationsStatus =
+  | "idle"
+  | "loading"
+  | "ok"
+  | "empty"
+  | "error"
+  | "timeout";
 
 type SuggestApiResponse = {
   status?: string;
@@ -52,6 +70,9 @@ export default function AddressSearchForm() {
   // After the user picks an address (violations API starts), hide the match list
   // until they click/focus back into the search bar.
   const [suggestionsEnabled, setSuggestionsEnabled] = useState(true);
+  // Bumped on Search so the suggest effect re-runs even when the address text
+  // is unchanged (React skips setState when the string is identical).
+  const [suggestNonce, setSuggestNonce] = useState(0);
 
   // Used to scroll the form to the top after violations load finishes
   const formSectionRef = useRef<HTMLElement | null>(null);
@@ -60,7 +81,7 @@ export default function AddressSearchForm() {
 
   /**
    * Debounced address-check while typing.
-   * Shows loading → list, or "No match found".
+   * Shows loading → list, or validation / empty / timeout messages.
    */
   useEffect(() => {
     const trimmed = address.trim();
@@ -85,6 +106,27 @@ export default function AddressSearchForm() {
     const controller = new AbortController();
     const requestId = ++suggestRequestId.current;
     const timer = window.setTimeout(async () => {
+      // Classify locally before hitting Open Data
+      const classified = classifySuggestInput(trimmed);
+      if (classified.status === "idle") {
+        if (requestId !== suggestRequestId.current) return;
+        setMatches([]);
+        setSuggestStatus("idle");
+        return;
+      }
+      if (classified.status === "insufficient") {
+        if (requestId !== suggestRequestId.current) return;
+        setMatches([]);
+        setSuggestStatus("insufficient");
+        return;
+      }
+      if (classified.status === "invalid") {
+        if (requestId !== suggestRequestId.current) return;
+        setMatches([]);
+        setSuggestStatus("invalid");
+        return;
+      }
+
       setSuggestStatus("loading");
 
       const timeoutId = window.setTimeout(
@@ -117,10 +159,22 @@ export default function AddressSearchForm() {
         ) {
           console.error("[address-suggest] timeout", {
             query: trimmed,
-            message: payload.message || "The search timed out",
+            message: payload.message || CONNECTION_TIMED_OUT_MESSAGE,
           });
           setMatches([]);
           setSuggestStatus("timeout");
+          return;
+        }
+
+        if (payload.status === "insufficient") {
+          setMatches([]);
+          setSuggestStatus("insufficient");
+          return;
+        }
+
+        if (payload.status === "invalid") {
+          setMatches([]);
+          setSuggestStatus("invalid");
           return;
         }
 
@@ -149,7 +203,7 @@ export default function AddressSearchForm() {
         if (error instanceof Error && error.name === "AbortError") {
           console.error("[address-suggest] timeout", {
             query: trimmed,
-            message: "Client abort after 30s",
+            message: "Client abort after 10s",
           });
           setMatches([]);
           setSuggestStatus("timeout");
@@ -171,7 +225,7 @@ export default function AddressSearchForm() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [address, violationsStatus, suggestionsEnabled]);
+  }, [address, violationsStatus, suggestionsEnabled, suggestNonce]);
 
   /**
    * User clicked one listed building → fetch its open violations.
@@ -215,7 +269,7 @@ export default function AddressSearchForm() {
       ) {
         console.error("[violations-search] timeout", {
           address: match.label,
-          message: payload.message || "The search timed out",
+          message: payload.message || CONNECTION_TIMED_OUT_MESSAGE,
         });
         setViolationsStatus("timeout");
       } else if (payload.status === "empty") {
@@ -239,7 +293,7 @@ export default function AddressSearchForm() {
       if (error instanceof Error && error.name === "AbortError") {
         console.error("[violations-search] timeout", {
           address: match.label,
-          message: "Client abort after 30s",
+          message: "Client abort after 10s",
         });
         setViolationsStatus("timeout");
       } else {
@@ -266,21 +320,34 @@ export default function AddressSearchForm() {
    */
   function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    // Force a fresh suggest by tweaking status; effect already depends on address.
-    // If the user presses Enter with matches showing, keep the list visible.
     const trimmed = address.trim();
     if (trimmed.length < MIN_QUERY_LENGTH) {
-      setSuggestStatus("empty");
+      setSuggestStatus("insufficient");
       setMatches([]);
       return;
     }
+
+    const classified = classifySuggestInput(trimmed);
+    if (classified.status === "insufficient") {
+      setSuggestStatus("insufficient");
+      setMatches([]);
+      return;
+    }
+    if (classified.status === "invalid") {
+      setSuggestStatus("invalid");
+      setMatches([]);
+      return;
+    }
+
     // Clear prior violation results when re-checking addresses
     setViolations([]);
     setViolationsStatus("idle");
     // Nudge suggest status so the user sees loading immediately
     setSuggestStatus("loading");
-    // Re-trigger effect by bumping request id via a no-op address normalize
-    setAddress(`${trimmed}`);
+    setSuggestionsEnabled(true);
+    setAddress(trimmed);
+    // Force suggest effect to re-run even when address text is unchanged
+    setSuggestNonce((value) => value + 1);
   }
 
   const showSuggestPanel =
@@ -351,7 +418,7 @@ export default function AddressSearchForm() {
         </div>
       </form>
 
-      {/* Address-check panel: loading, matches, or no match */}
+      {/* Address-check panel: loading, matches, validation, or no match */}
       {showSuggestPanel ? (
         <div className="mt-3 w-full max-w-xl" aria-live="polite">
           {suggestStatus === "loading" ? (
@@ -390,6 +457,18 @@ export default function AddressSearchForm() {
             </p>
           ) : null}
 
+          {suggestStatus === "insufficient" ? (
+            <p className="text-sm text-zinc-700" role="status">
+              {TOO_LITTLE_INFORMATION_MESSAGE}
+            </p>
+          ) : null}
+
+          {suggestStatus === "invalid" ? (
+            <p className="text-sm text-zinc-700" role="status">
+              {INVALID_SEARCH_MESSAGE}
+            </p>
+          ) : null}
+
           {suggestStatus === "error" ? (
             <p className="text-sm text-red-700" role="alert">
               Error in getting data
@@ -398,7 +477,7 @@ export default function AddressSearchForm() {
 
           {suggestStatus === "timeout" ? (
             <p className="text-sm text-amber-800" role="alert">
-              The search timed out
+              {CONNECTION_TIMED_OUT_MESSAGE}
             </p>
           ) : null}
         </div>
@@ -433,7 +512,7 @@ export default function AddressSearchForm() {
 
       {violationsStatus === "timeout" ? (
         <p className="mt-6 text-sm text-amber-800" role="alert">
-          The search timed out
+          {CONNECTION_TIMED_OUT_MESSAGE}
         </p>
       ) : null}
 

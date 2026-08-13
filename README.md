@@ -13,7 +13,7 @@ Google **Gemini 3.6 Flash** is still available on the server for later AI featur
 - Loading spinner under the form while waiting
 - After the API call finishes, the page scrolls so the search form is at the top
 - Results table: Vio #, Vio code, Class, Descript, Apt, Date (`novissueddate`)
-- Client-side filter/search within results
+- Client-side per-column dropdown filters (All / value) within results
 - Clear messages for empty / invalid / too little information / error / 10-second timeout
 - Gemini helpers remain available (`lib/gemini.ts`, Server Action, `/api/gemini`)
 - Build verification with `npm run build` / `npm run check`

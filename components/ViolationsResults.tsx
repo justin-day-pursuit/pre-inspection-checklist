@@ -17,6 +17,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { HpdViolation } from "@/lib/violations-types";
+import {
+  BLANK_VALUE,
+  hasActiveFilters,
+  matchesDescriptFilter,
+  matchesFilter,
+} from "@/lib/violations-filters";
 
 type ViolationsResultsProps = {
   violations: HpdViolation[];
@@ -32,9 +38,6 @@ type ColumnFilterKey =
   | "novIssuedDate";
 
 type ColumnFilters = Record<ColumnFilterKey, string>;
-
-/** Sentinel so empty Apt can be filtered without colliding with "All" (value=""). */
-const BLANK_VALUE = "__blank__";
 
 const EMPTY_FILTERS: ColumnFilters = {
   violationId: "",
@@ -96,10 +99,9 @@ export default function ViolationsResults({
       violationClass: uniqueSorted(
         violations.map((row) => row.violationClass),
       ),
-      description: uniqueSorted(violations.map((row) => row.description)),
       apartment: uniqueSorted(violations.map((row) => row.apartment)),
       novIssuedDate: uniqueSorted(violations.map((row) => row.novIssuedDate)),
-    } satisfies Record<ColumnFilterKey, string[]>;
+    } satisfies Record<Exclude<ColumnFilterKey, "description">, string[]>;
   }, [violations]);
 
   const filtered = useMemo(() => {
@@ -108,12 +110,14 @@ export default function ViolationsResults({
         matchesFilter(filters.violationId, row.violationId) &&
         matchesFilter(filters.orderNumber, row.orderNumber) &&
         matchesFilter(filters.violationClass, row.violationClass) &&
-        matchesFilter(filters.description, row.description) &&
+        matchesDescriptFilter(filters.description, row.description) &&
         matchesFilter(filters.apartment, row.apartment) &&
         matchesFilter(filters.novIssuedDate, row.novIssuedDate)
       );
     });
   }, [filters, violations]);
+
+  const filtersActive = hasActiveFilters(filters);
 
   // Clear selection when the highlighted row is no longer visible
   useEffect(() => {
@@ -135,6 +139,10 @@ export default function ViolationsResults({
     setFilters((current) => ({ ...current, [key]: value }));
   }
 
+  const totalCount = violations.length;
+  const shownCount = filtered.length;
+  const countNoun = totalCount === 1 ? "violation" : "violations";
+
   return (
     <section
       className="mt-8 w-full"
@@ -145,8 +153,15 @@ export default function ViolationsResults({
           Open violations
         </h2>
         <p className="mt-1 text-sm text-zinc-600">
-          {violations.length} unique violation
-          {violations.length === 1 ? "" : "s"} found for{" "}
+          {filtersActive ? (
+            <>
+              Showing {shownCount} of {totalCount} unique {countNoun} for{" "}
+            </>
+          ) : (
+            <>
+              {totalCount} unique {countNoun} found for{" "}
+            </>
+          )}
           <span className="font-medium text-zinc-800">{searchedAddress}</span>
         </p>
       </div>
@@ -183,23 +198,35 @@ export default function ViolationsResults({
                 >
                   <label className="block">
                     <span className="sr-only">Filter by {column.label}</span>
-                    <select
-                      value={filters[column.key]}
-                      onChange={(event) =>
-                        setColumnFilter(column.key, event.target.value)
-                      }
-                      className="min-h-8 w-full max-w-full rounded border border-zinc-300 bg-white px-1.5 text-xs text-zinc-800 outline-none ring-zinc-400 focus:ring-2"
-                    >
-                      <option value="">All</option>
-                      {filterOptions[column.key].map((value) => (
-                        <option
-                          key={optionKey(column.key, value)}
-                          value={toOptionValue(value)}
-                        >
-                          {optionLabel(column.key, value)}
-                        </option>
-                      ))}
-                    </select>
+                    {column.key === "description" ? (
+                      <input
+                        type="search"
+                        value={filters.description}
+                        onChange={(event) =>
+                          setColumnFilter("description", event.target.value)
+                        }
+                        placeholder="Search…"
+                        className="min-h-8 w-full max-w-full rounded border border-zinc-300 bg-white px-1.5 text-xs text-zinc-800 outline-none ring-zinc-400 placeholder:text-zinc-400 focus:ring-2"
+                      />
+                    ) : (
+                      <select
+                        value={filters[column.key]}
+                        onChange={(event) =>
+                          setColumnFilter(column.key, event.target.value)
+                        }
+                        className="min-h-8 w-full max-w-full rounded border border-zinc-300 bg-white px-1.5 text-xs text-zinc-800 outline-none ring-zinc-400 focus:ring-2"
+                      >
+                        <option value="">All</option>
+                        {filterOptions[column.key].map((value) => (
+                          <option
+                            key={optionKey(column.key, value)}
+                            value={toOptionValue(value)}
+                          >
+                            {optionLabel(column.key, value)}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </label>
                 </th>
               ))}
@@ -224,16 +251,8 @@ export default function ViolationsResults({
                 return (
                   <tr
                     key={row.violationId}
-                    role="button"
-                    tabIndex={0}
                     aria-selected={isSelected}
                     onClick={() => toggleSelected(row.violationId)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        toggleSelected(row.violationId);
-                      }
-                    }}
                     className={`cursor-pointer border-t border-zinc-200 align-top ${rowClass}`}
                   >
                     <td className="whitespace-nowrap px-3 py-2 font-medium text-zinc-900">
@@ -266,12 +285,6 @@ export default function ViolationsResults({
   );
 }
 
-function matchesFilter(filterValue: string, cellValue: string): boolean {
-  if (!filterValue) return true;
-  if (filterValue === BLANK_VALUE) return cellValue === "";
-  return cellValue === filterValue;
-}
-
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values)).sort((a, b) =>
     a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
@@ -290,14 +303,7 @@ function optionKey(key: ColumnFilterKey, value: string): string {
 function optionLabel(key: ColumnFilterKey, value: string): string {
   if (key === "apartment" && value === "") return "(blank)";
   if (key === "novIssuedDate") return formatDate(value);
-  if (key === "description") return truncateLabel(value, 60);
   return value || "—";
-}
-
-function truncateLabel(value: string, maxLength: number): string {
-  if (!value) return "—";
-  if (value.length <= maxLength) return value;
-  return `${value.slice(0, maxLength - 1)}…`;
 }
 
 /** Show a readable date; fall back to the raw string or a dash. */

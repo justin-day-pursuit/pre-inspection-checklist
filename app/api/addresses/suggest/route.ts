@@ -22,10 +22,13 @@ export async function POST(request: Request) {
     const query = body.query?.trim() ?? "";
 
     if (!query) {
-      return NextResponse.json({
-        status: "insufficient",
-        message: TOO_LITTLE_INFORMATION_MESSAGE,
-      });
+      return NextResponse.json(
+        {
+          status: "insufficient",
+          message: TOO_LITTLE_INFORMATION_MESSAGE,
+        },
+        { status: 400 },
+      );
     }
 
     const result = await suggestAddressesByQuery(query, request.signal);

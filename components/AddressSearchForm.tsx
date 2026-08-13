@@ -129,10 +129,12 @@ export default function AddressSearchForm() {
 
       setSuggestStatus("loading");
 
-      const timeoutId = window.setTimeout(
-        () => controller.abort(),
-        CLIENT_TIMEOUT_MS,
-      );
+      // Only the 10s timer sets this; cleanup abort must not look like a timeout.
+      let timedOutByTimer = false;
+      const timeoutId = window.setTimeout(() => {
+        timedOutByTimer = true;
+        controller.abort();
+      }, CLIENT_TIMEOUT_MS);
 
       try {
         const response = await fetch("/api/addresses/suggest", {
@@ -201,6 +203,9 @@ export default function AddressSearchForm() {
         if (requestId !== suggestRequestId.current) return;
 
         if (error instanceof Error && error.name === "AbortError") {
+          // Cleanup abort (unmount / deps change) — leave status alone
+          if (!timedOutByTimer) return;
+
           console.error("[address-suggest] timeout", {
             query: trimmed,
             message: "Client abort after 10s",
@@ -241,7 +246,12 @@ export default function AddressSearchForm() {
     setLastSearchedAddress(match.label);
 
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), CLIENT_TIMEOUT_MS);
+    // Only the 10s timer sets this; keeps AbortError handling explicit.
+    let timedOutByTimer = false;
+    const timer = window.setTimeout(() => {
+      timedOutByTimer = true;
+      controller.abort();
+    }, CLIENT_TIMEOUT_MS);
 
     try {
       const response = await fetch("/api/violations", {
@@ -291,6 +301,8 @@ export default function AddressSearchForm() {
       }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
+        if (!timedOutByTimer) return;
+
         console.error("[violations-search] timeout", {
           address: match.label,
           message: "Client abort after 10s",

@@ -13,10 +13,11 @@ Google **Gemini 3.6 Flash** is still available on the server for later AI featur
 - Loading spinner under the form while waiting
 - After the API call finishes, the page scrolls so the search form is at the top
 - Results table: Vio #, Vio code, Class, Descript, Apt, Date (`novissueddate`)
-- Client-side per-column dropdown filters (All / value) within results
+- Client-side per-column filters (dropdowns + Descript text search) within results
 - Clear messages for empty / invalid / too little information / error / 10-second timeout
 - Gemini helpers remain available (`lib/gemini.ts`, Server Action, `/api/gemini`)
 - Build verification with `npm run build` / `npm run check`
+- Lightweight Node tests via `npm test`
 
 ## Not included yet
 
@@ -146,6 +147,7 @@ npm run check
 | `npm run dev` | Local development server |
 | `npm run build` | Production build (compile check) |
 | `npm run check` | Same as `npm run build` |
+| `npm test` | Run Node tests for address classify + filter helpers |
 | `npm run start` | Run the production build locally |
 | `npm run lint` | Run ESLint |
 
@@ -164,9 +166,11 @@ components/
   ViolationsResults.tsx       # Filterable violations table
 lib/
   address-query.ts            # Client-safe address parse / classify
+  violations-filters.ts       # Client-safe table filter helpers
   nyc-opendata.ts             # SODA3 helper (server only)
   violations-types.ts         # Shared TypeScript types
   gemini.ts                   # Gemini helper (server only)
+  *.test.ts                   # Node built-in tests (tsx)
 .env.example                  # Safe template for env variable names
 .env.local                    # Your real secrets (gitignored — do not commit)
 ```

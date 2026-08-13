@@ -18,6 +18,7 @@ import {
   CONNECTION_TIMED_OUT_MESSAGE,
   INVALID_SEARCH_MESSAGE,
   MIN_QUERY_LENGTH,
+  NO_VIOLATION_FOUND_MESSAGE,
   TOO_LITTLE_INFORMATION_MESSAGE,
   classifySuggestInput,
 } from "@/lib/address-query";
@@ -560,7 +561,7 @@ export default function AddressSearchForm() {
 
       {violationsStatus === "empty" ? (
         <p className="mt-6 text-sm text-zinc-700" role="status">
-          No match found
+          {NO_VIOLATION_FOUND_MESSAGE}
         </p>
       ) : null}
 

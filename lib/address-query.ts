@@ -14,6 +14,8 @@ export const MIN_STREET_QUERY_LENGTH = 2;
 export const CONNECTION_TIMED_OUT_MESSAGE = "Connection timed out";
 export const INVALID_SEARCH_MESSAGE = "Invalid search";
 export const TOO_LITTLE_INFORMATION_MESSAGE = "Too little information";
+/** Valid building lookup returned zero open violations. */
+export const NO_VIOLATION_FOUND_MESSAGE = "No violation found";
 
 /** Full street-type words after expansion (HPD-style). */
 const STREET_TYPE_WORDS = new Set([

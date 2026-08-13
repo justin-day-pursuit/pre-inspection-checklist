@@ -15,12 +15,28 @@ export const CONNECTION_TIMED_OUT_MESSAGE = "Connection timed out";
 export const INVALID_SEARCH_MESSAGE = "Invalid search";
 export const TOO_LITTLE_INFORMATION_MESSAGE = "Too little information";
 
+/** Full street-type words after expansion (HPD-style). */
+const STREET_TYPE_WORDS = new Set([
+  "STREET",
+  "AVENUE",
+  "PLACE",
+  "ROAD",
+  "BOULEVARD",
+  "DRIVE",
+  "LANE",
+  "COURT",
+  "PARKWAY",
+  "HIGHWAY",
+  "SQUARE",
+  "TERRACE",
+]);
+
 /**
  * Expand common street-type shorthands to the full words HPD usually stores.
- * Example: "AVE" → "AVENUE", "ST" → "STREET", "PL" → "PLACE"
+ * Example: "AVE" → "AVENUE", "PL" → "PLACE"
+ * Note: ST/STR are handled separately as trailing-only (preserve saint names).
  */
 const STREET_TYPE_EXPANSIONS: Array<[RegExp, string]> = [
-  [/\b(STREET|STR|ST)\b/g, "STREET"],
   [/\b(AVENUE|AVE)\b/g, "AVENUE"],
   [/\b(PLACE|PL)\b/g, "PLACE"],
   [/\b(ROAD|RD)\b/g, "ROAD"],
@@ -80,11 +96,55 @@ function preprocessAddressInput(raw: string): string {
     .replace(/(\d)\s*-\s*([A-Za-z])\b/g, "$1$2");
 }
 
+/** Trailing borough/city without a preceding comma (e.g. "… Ave Brooklyn"). */
+const TRAILING_BOROUGH_PATTERN =
+  /\s+(brooklyn|queens|bronx|manhattan|staten island|new york|nyc)\s*$/i;
+
+/**
+ * True when the fragment already contains a street-type word (after expansion).
+ * Used so we only strip a trailing borough when the street line looks complete
+ * ("18 Ave Brooklyn" → strip) and not when the borough is the street name
+ * ("Queens Blvd", "52-15 Queens").
+ */
+function hasStreetTypeWord(fragment: string): boolean {
+  return normalizeStreetQuery(fragment)
+    .split(" ")
+    .some((token) => STREET_TYPE_WORDS.has(token));
+}
+
+/**
+ * Strip trailing locality: comma-separated borough/city, optional NY + ZIP,
+ * then an uncomma'd trailing borough only when a street-type word already appears
+ * before it. Keeps borough tokens that are part of the street name
+ * ("Queens Blvd", "Manhattan Ave").
+ */
+function stripTrailingLocality(cleaned: string): string {
+  let result = cleaned
+    .replace(
+      /,\s*(new york|nyc|brooklyn|queens|bronx|manhattan|staten island)\b.*$/i,
+      "",
+    )
+    .replace(/,?\s*ny\s*\d{5}(-\d{4})?$/i, "")
+    .replace(/\s+\d{5}(-\d{4})?$/i, "")
+    .trim();
+
+  const boroughMatch = result.match(TRAILING_BOROUGH_PATTERN);
+  if (boroughMatch && boroughMatch.index !== undefined) {
+    const preceding = result.slice(0, boroughMatch.index).trim();
+    if (preceding && hasStreetTypeWord(preceding)) {
+      result = preceding;
+    }
+  }
+
+  return result;
+}
+
 /**
  * Expand street-type abbreviations to full words (HPD-friendly).
+ * ST/STR expand only as the trailing street-type token so "St Nicholas" stays "ST NICHOLAS".
  */
 function expandStreetTypes(street: string): string {
-  let result = street;
+  let result = street.replace(/\b(STREET|STR|ST)$/g, "STREET");
   for (const [pattern, fullWord] of STREET_TYPE_EXPANSIONS) {
     result = result.replace(pattern, fullWord);
   }
@@ -107,6 +167,29 @@ function normalizeStreetQuery(rawStreet: string): string {
     .trim();
 }
 
+/** True when the street fragment is only a street-type word (e.g. "AVENUE"). */
+function isStreetTypeOnly(streetQuery: string): boolean {
+  return STREET_TYPE_WORDS.has(streetQuery);
+}
+
+/**
+ * Street-only input (no house number), e.g. "18th Ave" / "Main Street".
+ * Distinguished from jumbled text by presence of a street-type token after normalize.
+ */
+function looksLikeStreetOnly(rawAddress: string): boolean {
+  const withoutLocality = stripTrailingLocality(
+    preprocessAddressInput(rawAddress),
+  );
+  if (!withoutLocality) return false;
+
+  const streetQuery = normalizeStreetQuery(withoutLocality);
+  if (!streetQuery || streetQuery.length < MIN_STREET_QUERY_LENGTH) {
+    return false;
+  }
+
+  return streetQuery.split(" ").some((token) => STREET_TYPE_WORDS.has(token));
+}
+
 /**
  * Split a typed address into house number + street text (+ optional ZIP).
  * Example: "7011 18th Ave 11204" → house "7011", street "18 AVENUE", zip "11204"
@@ -123,15 +206,7 @@ export function parseNycAddress(rawAddress: string): {
   const zipMatch = cleaned.match(/\b(\d{5})(?:-\d{4})?\s*$/);
   const zip = zipMatch ? zipMatch[1] : null;
 
-  // Drop trailing city / state / ZIP noise before reading house + street
-  const withoutCityState = cleaned
-    .replace(
-      /,?\s*(new york|nyc|brooklyn|queens|bronx|manhattan|staten island)\b.*$/i,
-      "",
-    )
-    .replace(/,?\s*ny\s*\d{5}(-\d{4})?$/i, "")
-    .replace(/\s+\d{5}(-\d{4})?$/i, "")
-    .trim();
+  const withoutCityState = stripTrailingLocality(cleaned);
 
   const match = withoutCityState.match(
     new RegExp(`^(${HOUSE_NUMBER_PATTERN})\\s+(.+)$`, "i"),
@@ -160,14 +235,7 @@ export function parseSuggestQuery(rawAddress: string): {
   const zipMatch = cleaned.match(/\b(\d{5})(?:-\d{4})?\s*$/);
   const zip = zipMatch ? zipMatch[1] : null;
 
-  const withoutCityState = cleaned
-    .replace(
-      /,?\s*(new york|nyc|brooklyn|queens|bronx|manhattan|staten island)\b.*$/i,
-      "",
-    )
-    .replace(/,?\s*ny\s*\d{5}(-\d{4})?$/i, "")
-    .replace(/\s+\d{5}(-\d{4})?$/i, "")
-    .trim();
+  const withoutCityState = stripTrailingLocality(cleaned);
 
   // House number only (user still typing the street)
   const houseOnly = withoutCityState.match(
@@ -208,7 +276,7 @@ export type AddressQueryClassification =
 /**
  * Decide whether a typed suggest query is ready to hit Open Data.
  * - idle: fewer than MIN_QUERY_LENGTH characters
- * - insufficient: house only, or street fragment shorter than MIN_STREET_QUERY_LENGTH
+ * - insufficient: house only, street-type-only fragment, street-only, or short street
  * - invalid: jumbled / non-address text that does not parse
  * - ok: house + usable street fragment (optional ZIP)
  */
@@ -222,12 +290,16 @@ export function classifySuggestInput(
 
   const parsed = parseSuggestQuery(rawAddress);
   if (!parsed) {
+    if (looksLikeStreetOnly(rawAddress)) {
+      return { status: "insufficient" };
+    }
     return { status: "invalid" };
   }
 
   if (
     !parsed.streetQuery ||
-    parsed.streetQuery.length < MIN_STREET_QUERY_LENGTH
+    parsed.streetQuery.length < MIN_STREET_QUERY_LENGTH ||
+    isStreetTypeOnly(parsed.streetQuery)
   ) {
     return { status: "insufficient" };
   }
@@ -253,7 +325,10 @@ export function classifyAddressInput(
 
   const parsed = parseNycAddress(rawAddress);
   if (parsed) {
-    if (parsed.streetQuery.length < MIN_STREET_QUERY_LENGTH) {
+    if (
+      parsed.streetQuery.length < MIN_STREET_QUERY_LENGTH ||
+      isStreetTypeOnly(parsed.streetQuery)
+    ) {
       return { status: "insufficient" };
     }
     return {
@@ -268,8 +343,14 @@ export function classifyAddressInput(
   const loose = parseSuggestQuery(rawAddress);
   if (
     loose &&
-    (!loose.streetQuery || loose.streetQuery.length < MIN_STREET_QUERY_LENGTH)
+    (!loose.streetQuery ||
+      loose.streetQuery.length < MIN_STREET_QUERY_LENGTH ||
+      isStreetTypeOnly(loose.streetQuery))
   ) {
+    return { status: "insufficient" };
+  }
+
+  if (looksLikeStreetOnly(rawAddress)) {
     return { status: "insufficient" };
   }
 

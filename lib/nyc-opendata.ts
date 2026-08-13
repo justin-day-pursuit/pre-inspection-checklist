@@ -223,9 +223,37 @@ function uniqueViolationsFromRows(
   return Array.from(byId.values());
 }
 
-/** True when an error message clearly means a timeout. */
+/** True when an error message clearly means a timeout (not a client abort). */
 export function isTimeoutErrorMessage(message: string): boolean {
-  return /timeout|timed out|aborted|abort/i.test(message);
+  return /timeout|timed out/i.test(message);
+}
+
+/**
+ * Combine AbortSignals. Uses native AbortSignal.any when available;
+ * otherwise forwards aborts from any input onto a manual controller.
+ */
+function anyAbortSignal(signals: AbortSignal[]): AbortSignal {
+  if (typeof AbortSignal.any === "function") {
+    return AbortSignal.any(signals);
+  }
+
+  const controller = new AbortController();
+  const onAbort = () => {
+    controller.abort();
+    for (const signal of signals) {
+      signal.removeEventListener("abort", onAbort);
+    }
+  };
+
+  for (const signal of signals) {
+    if (signal.aborted) {
+      controller.abort();
+      return controller.signal;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+  }
+
+  return controller.signal;
 }
 
 /** Log fail states for maintainers watching the server terminal. Never log secrets. */
@@ -256,6 +284,7 @@ function logSuggestFailure(
 /**
  * Shared SODA3 POST with 10s timeout.
  * Optional externalSignal (e.g. request.signal) cancels the NYC fetch early.
+ * Timer abort → timeout; external abort alone → aborted.
  */
 async function postNycSoql(
   query: string,
@@ -266,6 +295,7 @@ async function postNycSoql(
   | { status: "ok"; rows: Record<string, unknown>[] }
   | { status: "error"; message: string }
   | { status: "timeout" }
+  | { status: "aborted" }
 > {
   const { appToken, username, password, endpoint } = getNycOpenDataConfig();
   if (!appToken) {
@@ -278,17 +308,18 @@ async function postNycSoql(
 
   // Already aborted before we start (client disconnected)
   if (externalSignal?.aborted) {
-    return { status: "timeout" };
+    return { status: "aborted" };
   }
 
   const timeoutController = new AbortController();
-  const timer = setTimeout(
-    () => timeoutController.abort(),
-    NYC_OPENDATA_TIMEOUT_MS,
-  );
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    timeoutController.abort();
+  }, NYC_OPENDATA_TIMEOUT_MS);
 
   const signal = externalSignal
-    ? AbortSignal.any([timeoutController.signal, externalSignal])
+    ? anyAbortSignal([timeoutController.signal, externalSignal])
     : timeoutController.signal;
 
   try {
@@ -337,6 +368,13 @@ async function postNycSoql(
     return { status: "ok", rows: extractRows(payload) };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
+      // Timer fired → timeout; external cancel alone → aborted
+      if (timedOut) {
+        return { status: "timeout" };
+      }
+      if (externalSignal?.aborted) {
+        return { status: "aborted" };
+      }
       return { status: "timeout" };
     }
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -376,8 +414,12 @@ export async function suggestAddressesByQuery(
     signal,
   );
 
+  if (result.status === "aborted") {
+    return { status: "aborted" };
+  }
+
   if (result.status === "timeout") {
-    logSuggestFailure("timeout", query, "Abort or gateway timeout");
+    logSuggestFailure("timeout", query, "NYC Open Data timeout");
     return { status: "timeout" };
   }
 
@@ -451,8 +493,12 @@ export async function searchOpenViolationsByAddress(
     signal,
   );
 
+  if (result.status === "aborted") {
+    return { status: "aborted" };
+  }
+
   if (result.status === "timeout") {
-    logSearchFailure("timeout", address, "Abort or gateway timeout");
+    logSearchFailure("timeout", address, "NYC Open Data timeout");
     return { status: "timeout" };
   }
 
@@ -500,8 +546,12 @@ export async function searchOpenViolationsByBuilding(
     signal,
   );
 
+  if (result.status === "aborted") {
+    return { status: "aborted" };
+  }
+
   if (result.status === "timeout") {
-    logSearchFailure("timeout", addressLabel, "Abort or gateway timeout");
+    logSearchFailure("timeout", addressLabel, "NYC Open Data timeout");
     return { status: "timeout" };
   }
 

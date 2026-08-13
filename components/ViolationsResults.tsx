@@ -15,7 +15,7 @@
  * - Date       ← novissueddate
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import type { HpdViolation } from "@/lib/violations-types";
 import {
   BLANK_VALUE,
@@ -23,6 +23,7 @@ import {
   matchesDescriptFilter,
   matchesFilter,
 } from "@/lib/violations-filters";
+import { formatViolationDate, toDayKey } from "@/lib/violations-date";
 
 type ViolationsResultsProps = {
   violations: HpdViolation[];
@@ -100,7 +101,10 @@ export default function ViolationsResults({
         violations.map((row) => row.violationClass),
       ),
       apartment: uniqueSorted(violations.map((row) => row.apartment)),
-      novIssuedDate: uniqueSorted(violations.map((row) => row.novIssuedDate)),
+      // Dedupe by calendar day so raw timestamp variants collapse
+      novIssuedDate: uniqueSorted(
+        violations.map((row) => toDayKey(row.novIssuedDate)),
+      ),
     } satisfies Record<Exclude<ColumnFilterKey, "description">, string[]>;
   }, [violations]);
 
@@ -112,7 +116,7 @@ export default function ViolationsResults({
         matchesFilter(filters.violationClass, row.violationClass) &&
         matchesDescriptFilter(filters.description, row.description) &&
         matchesFilter(filters.apartment, row.apartment) &&
-        matchesFilter(filters.novIssuedDate, row.novIssuedDate)
+        matchesFilter(filters.novIssuedDate, toDayKey(row.novIssuedDate))
       );
     });
   }, [filters, violations]);
@@ -133,6 +137,16 @@ export default function ViolationsResults({
     setSelectedId((current) =>
       current === violationId ? null : violationId,
     );
+  }
+
+  function onRowKeyDown(
+    event: KeyboardEvent<HTMLTableRowElement>,
+    violationId: string,
+  ) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      toggleSelected(violationId);
+    }
   }
 
   function setColumnFilter(key: ColumnFilterKey, value: string) {
@@ -251,8 +265,12 @@ export default function ViolationsResults({
                 return (
                   <tr
                     key={row.violationId}
+                    tabIndex={0}
                     aria-selected={isSelected}
                     onClick={() => toggleSelected(row.violationId)}
+                    onKeyDown={(event) =>
+                      onRowKeyDown(event, row.violationId)
+                    }
                     className={`cursor-pointer border-t border-zinc-200 align-top ${rowClass}`}
                   >
                     <td className="whitespace-nowrap px-3 py-2 font-medium text-zinc-900">
@@ -272,7 +290,7 @@ export default function ViolationsResults({
                       {row.apartment || ""}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-zinc-700">
-                      {formatDate(row.novIssuedDate)}
+                      {formatViolationDate(row.novIssuedDate)}
                     </td>
                   </tr>
                 );
@@ -302,18 +320,6 @@ function optionKey(key: ColumnFilterKey, value: string): string {
 
 function optionLabel(key: ColumnFilterKey, value: string): string {
   if (key === "apartment" && value === "") return "(blank)";
-  if (key === "novIssuedDate") return formatDate(value);
+  if (key === "novIssuedDate") return formatViolationDate(value);
   return value || "—";
-}
-
-/** Show a readable date; fall back to the raw string or a dash. */
-function formatDate(value: string): string {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
 }

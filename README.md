@@ -12,7 +12,7 @@ Google **Gemini 3.6 Flash** is still available on the server for later AI featur
 - Server-side SODA3 query to Open HPD Violations (`csn4-vhvf`)
 - Loading spinner under the form while waiting
 - After the API call finishes, the page scrolls so the search form is at the top
-- Results table: Vio #, Vio code, Class, Descript, Apt, Date (`novissueddate`)
+- Results table: Vio #, Vio code, Class, Descript, Apt, Created (`approveddate`)
 - Client-side per-column filters (dropdowns + Descript text search) within results
 - Clear messages for empty / no open violations found / invalid / too little information / error / timeout
 - Gemini helpers remain available (`lib/gemini.ts`, Server Action, `/api/gemini`)
@@ -116,7 +116,7 @@ Table columns shown:
 | Class | `class` |
 | Descript | `novdescription` |
 | Apt | `apartment` (may be empty) |
-| Date | `novissueddate` |
+| Created | `approveddate` (original creation) |
 
 ## Gemini configuration (optional)
 

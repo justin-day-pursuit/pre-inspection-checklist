@@ -17,8 +17,8 @@ export type HpdViolation = {
   description: string;
   /** Apartment — may be empty */
   apartment: string;
-  /** NOV Issued Date → UI label "Date" */
-  novIssuedDate: string;
+  /** Original creation / approved date → UI label "Created" */
+  approvedDate: string;
   houseNumber: string;
   streetName: string;
   borough: string;

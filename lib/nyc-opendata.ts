@@ -125,7 +125,7 @@ export function buildViolationsSoql(
 
   const parts = [
     "SELECT `violationid`, `ordernumber`, `class`, `novdescription`,",
-    "`apartment`, `novissueddate`, `housenumber`, `streetname`, `boro`, `zip`",
+    "`apartment`, `approveddate`, `housenumber`, `streetname`, `boro`, `zip`",
     `WHERE ${buildHouseNumberClause(houseNumber)}`,
     `AND upper(\`streetname\`) LIKE '%${street}%'`,
   ];
@@ -135,7 +135,7 @@ export function buildViolationsSoql(
     parts.push(`AND \`zip\` = '${escapeSoqlLiteral(zip)}'`);
   }
 
-  parts.push("ORDER BY `novissueddate` DESC NULL LAST");
+  parts.push("ORDER BY `approveddate` DESC NULL LAST");
   return parts.join(" ");
 }
 
@@ -201,8 +201,8 @@ function mapRowToViolation(row: Record<string, unknown>): HpdViolation | null {
     description:
       readField(row, "novdescription") || readField(row, "NOVDescription"),
     apartment: readField(row, "apartment") || readField(row, "Apartment"),
-    novIssuedDate:
-      readField(row, "novissueddate") || readField(row, "NOVIssuedDate"),
+    approvedDate:
+      readField(row, "approveddate") || readField(row, "ApprovedDate"),
     houseNumber: readField(row, "housenumber") || readField(row, "HouseNumber"),
     streetName: readField(row, "streetname") || readField(row, "StreetName"),
     borough: readField(row, "boro") || readField(row, "Borough"),

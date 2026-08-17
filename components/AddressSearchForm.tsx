@@ -5,7 +5,8 @@
  * -----------------
  * Flow:
  * 1. User types an address → debounced "check" call lists matching buildings
- * 2. Under the bar: loading, match list, invalid / too-little, or "No match found"
+ * 2. Under the bar: loading, match list, invalid / too-little, or
+ *    "No open violations found" when a valid query has no Open Data hits
  * 3. User clicks a listed address → fetch open violations for that building
  * 4. After that click, the match list stays hidden until the user focuses
  *    the search bar again (or types a new query).
@@ -18,6 +19,7 @@ import {
   CONNECTION_TIMED_OUT_MESSAGE,
   INVALID_SEARCH_MESSAGE,
   MIN_QUERY_LENGTH,
+  NO_VIOLATION_FOUND_MESSAGE,
   TOO_LITTLE_INFORMATION_MESSAGE,
   classifySuggestInput,
 } from "@/lib/address-query";
@@ -513,7 +515,7 @@ export default function AddressSearchForm() {
 
           {suggestStatus === "empty" ? (
             <p className="text-sm text-zinc-700" role="status">
-              No match found
+              {NO_VIOLATION_FOUND_MESSAGE}
             </p>
           ) : null}
 
@@ -560,7 +562,7 @@ export default function AddressSearchForm() {
 
       {violationsStatus === "empty" ? (
         <p className="mt-6 text-sm text-zinc-700" role="status">
-          No match found
+          {NO_VIOLATION_FOUND_MESSAGE}
         </p>
       ) : null}
 

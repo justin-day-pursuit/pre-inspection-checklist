@@ -1,5 +1,5 @@
 /**
- * Local-safe calendar-day helpers for HPD novIssuedDate values.
+ * Local-safe calendar-day helpers for HPD approvedDate values.
  * Avoids `new Date("YYYY-MM-DD")` UTC midnight shifting the visible day.
  */
 

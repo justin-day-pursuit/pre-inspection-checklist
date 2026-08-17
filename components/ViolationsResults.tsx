@@ -12,7 +12,7 @@
  * - Class      ← class
  * - Descript   ← novdescription
  * - Apt        ← apartment (may be empty)
- * - Date       ← novissueddate
+ * - Created    ← approveddate (original creation)
  */
 
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
@@ -36,7 +36,7 @@ type ColumnFilterKey =
   | "violationClass"
   | "description"
   | "apartment"
-  | "novIssuedDate";
+  | "approvedDate";
 
 type ColumnFilters = Record<ColumnFilterKey, string>;
 
@@ -46,7 +46,7 @@ const EMPTY_FILTERS: ColumnFilters = {
   violationClass: "",
   description: "",
   apartment: "",
-  novIssuedDate: "",
+  approvedDate: "",
 };
 
 const FILTER_COLUMNS: {
@@ -80,8 +80,8 @@ const FILTER_COLUMNS: {
     thClassName: "whitespace-nowrap px-3 py-2 font-medium",
   },
   {
-    key: "novIssuedDate",
-    label: "Date",
+    key: "approvedDate",
+    label: "Created",
     thClassName: "whitespace-nowrap px-3 py-2 font-medium",
   },
 ];
@@ -102,8 +102,8 @@ export default function ViolationsResults({
       ),
       apartment: uniqueSorted(violations.map((row) => row.apartment)),
       // Dedupe by calendar day so raw timestamp variants collapse
-      novIssuedDate: uniqueSorted(
-        violations.map((row) => toDayKey(row.novIssuedDate)),
+      approvedDate: uniqueSorted(
+        violations.map((row) => toDayKey(row.approvedDate)),
       ),
     } satisfies Record<Exclude<ColumnFilterKey, "description">, string[]>;
   }, [violations]);
@@ -116,7 +116,7 @@ export default function ViolationsResults({
         matchesFilter(filters.violationClass, row.violationClass) &&
         matchesDescriptFilter(filters.description, row.description) &&
         matchesFilter(filters.apartment, row.apartment) &&
-        matchesFilter(filters.novIssuedDate, toDayKey(row.novIssuedDate))
+        matchesFilter(filters.approvedDate, toDayKey(row.approvedDate))
       );
     });
   }, [filters, violations]);
@@ -290,7 +290,7 @@ export default function ViolationsResults({
                       {row.apartment || ""}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-zinc-700">
-                      {formatViolationDate(row.novIssuedDate)}
+                      {formatViolationDate(row.approvedDate)}
                     </td>
                   </tr>
                 );
@@ -320,6 +320,6 @@ function optionKey(key: ColumnFilterKey, value: string): string {
 
 function optionLabel(key: ColumnFilterKey, value: string): string {
   if (key === "apartment" && value === "") return "(blank)";
-  if (key === "novIssuedDate") return formatViolationDate(value);
+  if (key === "approvedDate") return formatViolationDate(value);
   return value || "—";
 }

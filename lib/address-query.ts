@@ -14,6 +14,12 @@ export const MIN_STREET_QUERY_LENGTH = 2;
 export const CONNECTION_TIMED_OUT_MESSAGE = "Connection timed out";
 export const INVALID_SEARCH_MESSAGE = "Invalid search";
 export const TOO_LITTLE_INFORMATION_MESSAGE = "Too little information";
+/**
+ * Well-formed address with no buildings/rows in Open HPD Violations.
+ * Suggest empty and violations empty both use this (the open-violations
+ * dataset cannot list buildings that have zero open violations).
+ */
+export const NO_VIOLATION_FOUND_MESSAGE = "No open violations found";
 
 /** Full street-type words after expansion (HPD-style). */
 const STREET_TYPE_WORDS = new Set([
